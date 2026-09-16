@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const url = import.meta.env.VITE_SUPABASE_URL
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const url = __SUPABASE_URL__
+const anonKey = __SUPABASE_ANON_KEY__
 
 /**
  * True when both env vars are present. When false the whole app falls back to

@@ -21,6 +21,8 @@ export default defineConfig(({ mode }) => {
     resolve: { alias: { '@': path.resolve(__dirname, './src') } },
     server: { port: 5180, open: true },
     define: {
+      __SUPABASE_URL__: JSON.stringify(pick('VITE_SUPABASE_URL', 'SUPABASE_URL')),
+      __SUPABASE_ANON_KEY__: JSON.stringify(pick('VITE_SUPABASE_ANON_KEY', 'SUPABASE_ANON_KEY')),
       __GEMINI_API_KEY__: JSON.stringify(pick('VITE_GEMINI_API_KEY', 'GEMINI_API_KEY')),
       __GEMINI_MODEL__: JSON.stringify(pick('VITE_GEMINI_MODEL', 'GEMINI_MODEL') || 'gemini-3.6-flash'),
       // Short, frequent calls run here: cheaper, and it draws on its own

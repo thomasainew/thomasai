@@ -26,6 +26,7 @@ const period = currentPeriod()
 export const SETTINGS: Settings = {
   userName: 'Thomas',
   accountLabel: 'Personal Account',
+  phone: '',
   baseCurrency: 'AED',
   monthlyIncomeTarget: 0,
   monthlyBudget: 0,

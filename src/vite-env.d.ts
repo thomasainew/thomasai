@@ -1,13 +1,12 @@
 /// <reference types="vite/client" />
 
-interface ImportMetaEnv {
-  readonly VITE_SUPABASE_URL?: string
-  readonly VITE_SUPABASE_ANON_KEY?: string
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv
-}
+/**
+ * Resolved at build time by vite.config.ts from either the VITE_-prefixed
+ * name or the bare one, so a host that strips the VITE_ prefix still works.
+ * Empty string when unset. Inlined into the browser bundle — see src/lib/supabase.ts.
+ */
+declare const __SUPABASE_URL__: string
+declare const __SUPABASE_ANON_KEY__: string
 
 /**
  * Gemini config, resolved at build time by vite.config.ts from either

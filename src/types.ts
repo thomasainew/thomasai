@@ -151,6 +151,7 @@ export interface PriceWatch {
 export interface Settings {
   userName: string
   accountLabel: string
+  phone: string
   baseCurrency: Currency
   monthlyIncomeTarget: number
   monthlyBudget: number

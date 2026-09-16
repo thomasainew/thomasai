@@ -113,6 +113,9 @@ export default function SettingsPage() {
             <Field label="Account Label" className="col-span-2">
               <input className="input" value={settings.accountLabel} onChange={(e) => updateSettings({ accountLabel: e.target.value })} placeholder="Personal Account" />
             </Field>
+            <Field label="Phone Number" className="col-span-2">
+              <input className="input" type="tel" value={settings.phone} onChange={(e) => updateSettings({ phone: e.target.value })} placeholder="+971 50 123 4567" />
+            </Field>
             <Field label="Base Currency">
               <select className="input" value={settings.baseCurrency} onChange={(e) => updateSettings({ baseCurrency: e.target.value as Currency })}>
                 <option>AED</option><option>INR</option><option>USD</option>

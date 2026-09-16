@@ -177,6 +177,7 @@ export const settingsMapper = {
   to: (s: Settings) => ({
     user_name: s.userName,
     account_label: s.accountLabel,
+    phone: s.phone,
     base_currency: s.baseCurrency,
     monthly_income_target: s.monthlyIncomeTarget,
     monthly_budget: s.monthlyBudget,
@@ -186,6 +187,7 @@ export const settingsMapper = {
   from: (r: Row): Settings => ({
     userName: r.user_name,
     accountLabel: r.account_label,
+    phone: r.phone ?? '',
     baseCurrency: r.base_currency,
     monthlyIncomeTarget: num(r.monthly_income_target),
     monthlyBudget: num(r.monthly_budget),
