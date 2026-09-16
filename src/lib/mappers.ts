@@ -110,11 +110,11 @@ export const MAPPERS: {
   people: {
     to: (p: Person) => ({
       id: p.id, name: p.name, relation: p.relation, color: p.color, spent: p.spent,
-      they_owe: p.theyOwe, i_owe: p.iOwe, phone: p.phone ?? null,
+      they_owe: p.theyOwe, i_owe: p.iOwe, phone: p.phone ?? null, photo: p.photo ?? null,
     }),
     from: (r): Person => ({
       id: r.id, name: r.name, relation: r.relation, color: r.color, spent: num(r.spent),
-      theyOwe: num(r.they_owe), iOwe: num(r.i_owe), phone: r.phone ?? undefined,
+      theyOwe: num(r.they_owe), iOwe: num(r.i_owe), phone: r.phone ?? undefined, photo: r.photo ?? undefined,
     }),
   },
 

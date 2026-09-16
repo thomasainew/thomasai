@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, Plus, Search, Users } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, Users, X } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
+import { readFileAsDataUrl } from '@/lib/gemini'
 import { fmtDate, money } from '@/lib/format'
 import { byPerson, inMonth } from '@/lib/selectors'
 import type { Person } from '@/types'
@@ -15,13 +16,38 @@ function spendTier(value: number, maxSpend: number): { label: string; tone: stri
   return { label: 'MEDIUM SPEND', tone: 'bg-amber-50 text-amber-700' }
 }
 
+/** Downscale to a small square JPEG so an avatar photo never bloats storage. */
+function resizeImage(dataUrl: string, max = 160): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      const scale = Math.min(1, max / Math.max(img.width, img.height))
+      canvas.width = Math.round(img.width * scale)
+      canvas.height = Math.round(img.height * scale)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return reject(new Error('Could not process that image.'))
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      resolve(canvas.toDataURL('image/jpeg', 0.85))
+    }
+    img.onerror = () => reject(new Error('Could not read that image.'))
+    img.src = dataUrl
+  })
+}
+
+const blankForm = () => ({ name: '', relation: '', phone: '', color: '#3b82f6', photo: '' })
+
 export default function People() {
-  const { people, transactions, addPerson, removePerson } = useStore()
+  const { people, transactions, addPerson, updatePerson, removePerson } = useStore()
   const [modal, setModal] = useState(false)
+  const [editing, setEditing] = useState<Person | null>(null)
+  const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [sort, setSort] = useState<'name' | 'spend'>('name')
-  const [form, setForm] = useState({ name: '', relation: '', phone: '', color: '#3b82f6' })
+  const [form, setForm] = useState(blankForm())
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const spending = useMemo(() => byPerson(transactions), [transactions])
   const totalSpent = spending.reduce((a, p) => a + p.value, 0)
@@ -37,6 +63,21 @@ export default function People() {
     setSelected(people.find((p) => p.name.toLowerCase() === 'me')?.name ?? people[0].name)
   }, [people, selected])
 
+  // Close the open card menu on an outside click or Escape.
+  useEffect(() => {
+    if (!openMenu) return
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setOpenMenu(null)
+    }
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setOpenMenu(null)
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onEsc)
+    }
+  }, [openMenu])
+
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase()
     let list = people.filter((p) => !term || p.name.toLowerCase().includes(term) || p.relation.toLowerCase().includes(term))
@@ -51,28 +92,108 @@ export default function People() {
     [selected, transactions],
   )
 
+  const openAdd = () => {
+    setEditing(null)
+    setForm(blankForm())
+    setPhotoError(null)
+    setModal(true)
+  }
+
+  const openEdit = (p: Person) => {
+    setEditing(p)
+    setForm({ name: p.name, relation: p.relation, phone: p.phone ?? '', color: p.color, photo: p.photo ?? '' })
+    setPhotoError(null)
+    setOpenMenu(null)
+    setModal(true)
+  }
+
+  const askDelete = (p: Person) => {
+    setOpenMenu(null)
+    if (!window.confirm(`Remove ${p.name}? This does not delete their past transactions.`)) return
+    removePerson(p.id)
+    if (selected === p.name) setSelected(null)
+  }
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return
+    setPhotoError(null)
+    try {
+      const raw = await readFileAsDataUrl(file)
+      setForm((f) => ({ ...f, photo: raw }))
+      const small = await resizeImage(raw)
+      setForm((f) => ({ ...f, photo: small }))
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
   const save = () => {
     if (!form.name.trim()) return
-    addPerson({ name: form.name.trim(), relation: form.relation.trim() || 'Contact', phone: form.phone, color: form.color, spent: 0, theyOwe: 0, iOwe: 0 })
-    setForm({ name: '', relation: '', phone: '', color: '#3b82f6' })
+    const payload = {
+      name: form.name.trim(),
+      relation: form.relation.trim() || 'Contact',
+      phone: form.phone,
+      color: form.color,
+      photo: form.photo || undefined,
+    }
+    if (editing) updatePerson(editing.id, payload)
+    else addPerson({ ...payload, spent: 0, theyOwe: 0, iOwe: 0 })
     setModal(false)
   }
 
-  const Avatar = ({ p, size = 44 }: { p: Person; size?: number }) => (
-    <span
-      className="rounded-full grid place-items-center text-white font-bold shrink-0"
-      style={{ background: p.color, width: size, height: size, fontSize: size * 0.4 }}
-    >
-      {p.name.charAt(0).toUpperCase()}
-    </span>
-  )
+  const Avatar = ({ p, size = 44 }: { p: Person; size?: number }) =>
+    p.photo ? (
+      <img
+        src={p.photo}
+        alt={p.name}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: size, height: size }}
+      />
+    ) : (
+      <span
+        className="rounded-full grid place-items-center text-white font-bold shrink-0"
+        style={{ background: p.color, width: size, height: size, fontSize: size * 0.4 }}
+      >
+        {p.name.charAt(0).toUpperCase()}
+      </span>
+    )
+
+  const CardMenu = ({ p, scope }: { p: Person; scope: 'list' | 'detail' }) => {
+    const key = `${scope}:${p.id}`
+    return (
+    <div className="relative shrink-0" ref={openMenu === key ? menuRef : undefined}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpenMenu(openMenu === key ? null : key) }}
+        className="h-6 w-6 grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+      >
+        <MoreHorizontal size={14} />
+      </button>
+      {openMenu === key && (
+        <div className="absolute right-0 top-7 w-36 card p-1.5 z-20 animate-pop">
+          <button
+            onClick={(e) => { e.stopPropagation(); openEdit(p) }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-slate-600 hover:bg-slate-50 cursor-pointer inline-flex items-center gap-2"
+          >
+            <Pencil size={12} /> Edit
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); askDelete(p) }}
+            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 cursor-pointer inline-flex items-center gap-2"
+          >
+            <Trash2 size={12} /> Delete
+          </button>
+        </div>
+      )}
+    </div>
+    )
+  }
 
   return (
     <div className="space-y-5 max-w-[1600px]">
       <PageHeader
         title="People"
         subtitle="See who you spend on, who owes you, and who you owe."
-        actions={<button className="btn-primary" onClick={() => setModal(true)}><Plus size={15} /> Add Person</button>}
+        actions={<button className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Person</button>}
       />
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
@@ -139,12 +260,7 @@ export default function People() {
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <span className={`chip text-[10px] font-bold ${tier.tone}`}>{tier.label}</span>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); removePerson(p.id) }}
-                        className="h-6 w-6 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
-                      >
-                        <MoreHorizontal size={14} />
-                      </button>
+                      <CardMenu p={p} scope="list" />
                     </div>
                   </div>
 
@@ -193,9 +309,7 @@ export default function People() {
                     <p className="text-[11.5px] text-slate-400">{selectedPerson.relation}</p>
                   </div>
                 </div>
-                <button className="h-8 w-8 grid place-items-center rounded-lg text-slate-400 hover:bg-slate-100 cursor-pointer">
-                  <MoreHorizontal size={16} />
-                </button>
+                <CardMenu p={selectedPerson} scope="detail" />
               </div>
 
               <div className="grid grid-cols-3 gap-2 mb-5">
@@ -255,15 +369,42 @@ export default function People() {
       <Modal
         open={modal}
         onClose={() => setModal(false)}
-        title="Add Person"
+        title={editing ? 'Edit Person' : 'Add Person'}
         footer={
           <>
             <button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button>
-            <button className="btn-primary" onClick={save}>Add Person</button>
+            <button className="btn-primary" onClick={save}>{editing ? 'Save Changes' : 'Add Person'}</button>
           </>
         }
       >
         <div className="grid grid-cols-2 gap-4">
+          <Field label="Photo" className="col-span-2">
+            <div className="flex items-center gap-3">
+              {form.photo ? (
+                <div className="relative">
+                  <img src={form.photo} alt="" className="h-16 w-16 rounded-full object-cover" />
+                  <button
+                    onClick={() => setForm({ ...form, photo: '' })}
+                    className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-white shadow grid place-items-center text-slate-500 hover:text-rose-600 cursor-pointer"
+                  >
+                    <X size={11} />
+                  </button>
+                </div>
+              ) : (
+                <span
+                  className="h-16 w-16 rounded-full grid place-items-center text-white font-bold text-xl shrink-0"
+                  style={{ background: form.color }}
+                >
+                  {(form.name || '?').charAt(0).toUpperCase()}
+                </span>
+              )}
+              <label className="btn-ghost h-9 cursor-pointer">
+                <Upload size={14} /> {form.photo ? 'Change photo' : 'Upload photo'}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => pickPhoto(e.target.files?.[0])} />
+              </label>
+            </div>
+            {photoError && <p className="text-[11px] text-rose-600 mt-1.5">{photoError}</p>}
+          </Field>
           <Field label="Name" className="col-span-2">
             <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Ahmed" autoFocus />
           </Field>

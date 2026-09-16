@@ -12,6 +12,8 @@ export interface Account {
   status: 'Active' | 'Available' | 'Closed'
   color: string
   bank?: string
+  /** Whose account this is, for households tracking more than one person's accounts. */
+  owner?: string
   /** Cards only: day of month the statement closes (25 = period runs 26th–25th). */
   statementDay?: number
   /** Cards only: day of the following month the payment falls due. */
@@ -92,6 +94,8 @@ export interface Person {
   theyOwe: number
   iOwe: number
   phone?: string
+  /** Small avatar image as a data URL. Optional — falls back to a colour initial. */
+  photo?: string
 }
 
 export interface Bill {
