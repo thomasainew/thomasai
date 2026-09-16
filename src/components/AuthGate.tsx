@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { AlertCircle, Loader2, LogIn, Mail, Lock, Sparkles } from 'lucide-react'
+import { AlertCircle, Loader2, LogIn, Mail, Lock } from 'lucide-react'
 import { hasSupabase, supabase } from '@/lib/supabase'
 import { pullAll } from '@/lib/sync'
 import { useStore } from '@/store/useStore'
@@ -109,7 +109,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
 }
 
 function SignIn() {
-  const [mode, setMode] = useState<'in' | 'up'>('in')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -121,27 +120,10 @@ function SignIn() {
     setBusy(true)
     setMsg(null)
 
-    const res =
-      mode === 'in'
-        ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({
-            email,
-            password,
-            // Send the confirmation link back to wherever they signed up from,
-            // rather than relying on Supabase's single Site URL — that keeps
-            // localhost and the live domain working from the same project.
-            // Both origins still have to be in the Redirect URLs allow-list.
-            options: { emailRedirectTo: window.location.origin },
-          })
-
-    if (res.error) {
-      setMsg({ tone: 'error', text: res.error.message })
-    } else if (mode === 'up' && !res.data.session) {
-      setMsg({
-        tone: 'ok',
-        text: `Account created. Check ${email} for the confirmation link, then sign in.`,
-      })
-    }
+    // Single-user app — there is no sign-up flow. The one account is created
+    // once, directly in Supabase, and this screen only ever signs it in.
+    const res = await supabase.auth.signInWithPassword({ email, password })
+    if (res.error) setMsg({ tone: 'error', text: res.error.message })
     setBusy(false)
   }
 
@@ -203,14 +185,8 @@ function SignIn() {
             </div>
           </div>
 
-          <h1 className="text-[26px] font-extrabold tracking-tight text-slate-900">
-            {mode === 'in' ? 'Welcome back' : 'Create your account'}
-          </h1>
-          <p className="text-[13px] text-slate-500 mt-1.5 mb-7">
-            {mode === 'in'
-              ? 'Sign in to reach your financial dashboard.'
-              : 'Your data lands in your own Supabase project, visible only to you.'}
-          </p>
+          <h1 className="text-[26px] font-extrabold tracking-tight text-slate-900">Welcome back</h1>
+          <p className="text-[13px] text-slate-500 mt-1.5 mb-7">Sign in to reach your financial dashboard.</p>
 
           <form onSubmit={submit} className="space-y-4">
             <div>
@@ -237,7 +213,7 @@ function SignIn() {
                   type="password"
                   required
                   minLength={6}
-                  autoComplete={mode === 'in' ? 'current-password' : 'new-password'}
+                  autoComplete="current-password"
                   className="input pl-10"
                   placeholder="At least 6 characters"
                   value={password}
@@ -258,30 +234,9 @@ function SignIn() {
 
             <button type="submit" disabled={busy} className="btn-primary w-full h-11 disabled:opacity-60">
               {busy ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-              {mode === 'in' ? 'Sign In' : 'Create Account'}
+              Sign In
             </button>
           </form>
-
-          <p className="text-[12.5px] text-slate-500 text-center mt-5">
-            {mode === 'in' ? "Don't have an account?" : 'Already registered?'}{' '}
-            <button
-              onClick={() => {
-                setMode(mode === 'in' ? 'up' : 'in')
-                setMsg(null)
-              }}
-              className="font-bold text-brand-600 hover:text-brand-700 cursor-pointer"
-            >
-              {mode === 'in' ? 'Create one' : 'Sign in'}
-            </button>
-          </p>
-
-          <div className="mt-8 rounded-xl bg-white border border-[#e8edf5] px-4 py-3 flex items-start gap-2.5">
-            <Sparkles size={15} className="text-brand-500 mt-0.5 shrink-0" />
-            <p className="text-[11.5px] text-slate-500 leading-relaxed">
-A new account starts empty. Add your accounts first, then income and expenses — every figure on the
-              dashboard is calculated from what you enter.
-            </p>
-          </div>
         </div>
       </div>
     </div>
