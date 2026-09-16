@@ -3,16 +3,16 @@ import { AlertTriangle, Banknote, CalendarClock, HandCoins, Landmark, Pencil, Pl
 import { useStore } from '@/store/useStore'
 import { Badge, Card, CardHead, Empty, PageHeader, Progress, StatCard, statusTone } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
+import { TransferModal } from '@/components/TransferModal'
 import { daysLeft, fmtDate, money, pct, toBase, TODAY } from '@/lib/format'
 import { loanSummary } from '@/lib/selectors'
 import type { Currency, Loan } from '@/types'
 
 export default function Loans() {
-  const { loans, addLoan, updateLoan, removeLoan, payLoan } = useStore()
+  const { loans, addLoan, updateLoan, removeLoan } = useStore()
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Loan | null>(null)
   const [payFor, setPayFor] = useState<Loan | null>(null)
-  const [payAmount, setPayAmount] = useState('')
 
   const s = useMemo(() => loanSummary(loans), [loans])
   const totalPrincipal = s.active.reduce((a, l) => a + toBase(l.principal, l.currency), 0)
@@ -97,7 +97,7 @@ export default function Loans() {
                     <td className="td">
                       <div className="flex justify-end gap-1">
                         <button
-                          onClick={() => { setPayFor(l); setPayAmount(String(l.emi)) }}
+                          onClick={() => setPayFor(l)}
                           className="h-7 px-2.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer"
                         >
                           Pay
@@ -167,30 +167,10 @@ export default function Loans() {
         onSave={(data) => (editing ? updateLoan(editing.id, data) : addLoan(data))}
       />
 
-      <Modal
-        open={payFor !== null}
-        onClose={() => setPayFor(null)}
-        title={`Record Payment — ${payFor?.name ?? ''}`}
-        subtitle={payFor ? `Outstanding: ${money(payFor.outstanding, payFor.currency)}` : ''}
-        footer={
-          <>
-            <button className="btn-ghost" onClick={() => setPayFor(null)}>Cancel</button>
-            <button
-              className="btn-green"
-              onClick={() => {
-                if (payFor && Number(payAmount) > 0) payLoan(payFor.id, Number(payAmount))
-                setPayFor(null)
-              }}
-            >
-              Record Payment
-            </button>
-          </>
-        }
-      >
-        <Field label={`Amount (${payFor?.currency ?? 'AED'})`}>
-          <input className="input" type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} autoFocus />
-        </Field>
-      </Modal>
+      {/* A loan payment is a transfer out of a real account, so it reduces
+          both the loan's outstanding balance and the paying account's
+          balance — see the corrections spec, problem 5. */}
+      <TransferModal open={payFor !== null} onClose={() => setPayFor(null)} presetLoanId={payFor?.id} />
     </div>
   )
 }

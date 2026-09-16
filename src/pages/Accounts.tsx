@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Banknote, CreditCard, Landmark, Plus, Trash2, Wallet, PieChart, Pencil } from 'lucide-react'
+import { ArrowLeftRight, Banknote, CreditCard, Landmark, Plus, Trash2, Wallet, PieChart, Pencil } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Badge, PageHeader, StatCard, statusTone } from '@/components/ui/Primitives'
 import { Donut, DonutLegend } from '@/components/charts/Charts'
 import { Modal, Field } from '@/components/ui/Modal'
+import { TransferModal } from '@/components/TransferModal'
+import { accountLabel } from '@/lib/accounting'
 import { TODAY, fmtDate, money } from '@/lib/format'
 import { accountTotals, inMonth } from '@/lib/selectors'
 import type { Account, AccountType, Currency } from '@/types'
@@ -17,11 +19,17 @@ const TYPE_LABEL: Record<AccountType, string> = {
 }
 
 export default function Accounts() {
-  const { accounts, transactions, addAccount, updateAccount, removeAccount } = useStore()
+  const { accounts, transactions, transfers, loans, addAccount, updateAccount, removeAccount, removeTransfer } = useStore()
   const [tab, setTab] = useState<'all' | AccountType>('all')
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Account | null>(null)
   const [editBalances, setEditBalances] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
+
+  const transferDest = (t: (typeof transfers)[number]) =>
+    t.toKind === 'loan'
+      ? loans.find((l) => l.id === t.toId)?.name ?? '—'
+      : accounts.find((a) => a.id === t.toId)?.name ?? '—'
 
   /** Account list plus this month's movements, as a CSV statement. */
   const downloadStatement = () => {
@@ -62,7 +70,10 @@ export default function Accounts() {
       [...inMonth(transactions)]
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 6)
-        .map((t) => ({ ...t, accountName: accounts.find((a) => a.id === t.accountId)?.name ?? '—' })),
+        .map((t) => {
+          const acc = accounts.find((a) => a.id === t.accountId)
+          return { ...t, accountName: acc ? accountLabel(acc) : '—' }
+        }),
     [transactions, accounts],
   )
 
@@ -80,15 +91,20 @@ export default function Accounts() {
         title="Accounts"
         subtitle="Manage all your bank accounts, wallets, cards and loans in one place."
         actions={
-          <button
-            className="btn-primary"
-            onClick={() => {
-              setEditing(null)
-              setModal(true)
-            }}
-          >
-            <Plus size={15} /> Add Account
-          </button>
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={() => setTransferOpen(true)}>
+              <ArrowLeftRight size={15} /> Transfer
+            </button>
+            <button
+              className="btn-primary"
+              onClick={() => {
+                setEditing(null)
+                setModal(true)
+              }}
+            >
+              <Plus size={15} /> Add Account
+            </button>
+          </div>
         }
       />
 
@@ -217,6 +233,46 @@ export default function Accounts() {
         </div>
       </div>
 
+      <Card>
+        <CardHead title="Transfer History" sub="Movements between your own accounts — never counted as income or expense" />
+        <div className="overflow-x-auto scroll-thin">
+          <table className="w-full min-w-[640px]">
+            <thead className="bg-slate-50/70">
+              <tr>
+                <th className="th">Date</th>
+                <th className="th">From</th>
+                <th className="th">To</th>
+                <th className="th">Purpose</th>
+                <th className="th text-right">Amount</th>
+                <th className="th text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#f1f5f9]">
+              {transfers.length === 0 && (
+                <tr><td className="td text-center text-slate-400 py-8" colSpan={6}>No transfers recorded yet.</td></tr>
+              )}
+              {transfers.map((t) => (
+                <tr key={t.id} className="row-hover">
+                  <td className="td text-slate-500">{fmtDate(t.date)}</td>
+                  <td className="td font-semibold text-slate-800">{accounts.find((a) => a.id === t.fromAccountId)?.name ?? '—'}</td>
+                  <td className="td font-semibold text-slate-800">{transferDest(t)}</td>
+                  <td className="td text-slate-500">{t.purpose}</td>
+                  <td className="td text-right font-bold tabular-nums">{money(t.amount, t.currency)}</td>
+                  <td className="td text-right">
+                    <button
+                      onClick={() => removeTransfer(t.id)}
+                      className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer ml-auto"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { icon: '📄', title: 'Account Statements', desc: 'Download your accounts and this month’s transactions as CSV.', btn: 'Download Statements', color: '#10b981', onClick: downloadStatement },
@@ -252,6 +308,7 @@ export default function Accounts() {
       </div>
 
       <AccountModal open={modal} onClose={() => setModal(false)} editing={editing} onSave={editing ? (patch) => updateAccount(editing.id, patch) : addAccount} />
+      <TransferModal open={transferOpen} onClose={() => setTransferOpen(false)} />
     </div>
   )
 }

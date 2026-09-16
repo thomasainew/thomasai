@@ -1,12 +1,13 @@
 import type {
   Account, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch, Settings,
-  Subcategory, Transaction,
+  Subcategory, Transaction, Transfer,
 } from '@/types'
 
 /** Every syncable collection in the store, and the table that backs it. */
 export const TABLES = {
   accounts: 'accounts',
   transactions: 'transactions',
+  transfers: 'transfers',
   budgets: 'budgets',
   loans: 'loans',
   people: 'people',
@@ -66,6 +67,17 @@ export const MAPPERS: {
       subcategory: r.subcategory ?? undefined,
       weight: r.weight == null ? undefined : num(r.weight),
       weightUnit: r.weight_unit ?? undefined,
+    }),
+  },
+
+  transfers: {
+    to: (t: Transfer) => ({
+      id: t.id, date: t.date, from_account_id: t.fromAccountId, to_kind: t.toKind, to_id: t.toId,
+      amount: t.amount, currency: t.currency, purpose: t.purpose, notes: t.notes ?? null,
+    }),
+    from: (r): Transfer => ({
+      id: r.id, date: r.date, fromAccountId: r.from_account_id, toKind: r.to_kind, toId: r.to_id,
+      amount: num(r.amount), currency: r.currency, purpose: r.purpose, notes: r.notes ?? undefined,
     }),
   },
 

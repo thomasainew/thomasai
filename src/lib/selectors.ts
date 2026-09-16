@@ -109,6 +109,25 @@ export function liquidBalance(accounts: Account[]) {
   return t.bank + t.cash - t.card
 }
 
+/**
+ * Money you can actually spend right now: bank + cash, full stop. Card debt
+ * and loan debt are shown as their own figures rather than netted in here —
+ * see the corrections spec, problem 6: a blended balance hides both.
+ */
+export function availableMoney(accounts: Account[]) {
+  const t = accountTotals(accounts)
+  return t.bank + t.cash
+}
+
+/** What you'd have left if every card and loan were paid off today. */
+export function netPosition(accounts: Account[], loans: Loan[]) {
+  const t = accountTotals(accounts)
+  const loansOutstanding = loans
+    .filter((l) => l.status !== 'Closed')
+    .reduce((acc, l) => acc + toBase(l.outstanding, l.currency), 0)
+  return t.bank + t.cash - t.card - loansOutstanding
+}
+
 export function loanSummary(loans: Loan[]) {
   const active = loans.filter((l) => l.status !== 'Closed')
   const outstanding = active.reduce((acc, l) => acc + toBase(l.outstanding, l.currency), 0)

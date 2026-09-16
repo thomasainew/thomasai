@@ -9,6 +9,7 @@ import {
 } from '@/lib/categorise'
 import { TODAY, fmtDate } from '@/lib/format'
 import { categoriesOf, findCategoryByName, statementFor, subcategoriesOf } from '@/lib/selectors'
+import { accountLabel, depositAccounts, methodFor, paymentAccounts } from '@/lib/accounting'
 import { WEIGHT_UNITS, type Currency, type Transaction, type TxnType, type WeightUnit } from '@/types'
 
 /** Used only until the user creates categories of their own. */
@@ -17,7 +18,6 @@ const FALLBACK_EXPENSE = [
   'Groceries', 'Home / Rent', 'Utilities', 'Transport', 'Health', 'Restaurants',
   'Shopping', 'Family Support', 'Personal', 'Subscriptions', 'Education', 'Loan Payment', 'Other',
 ]
-const METHODS = ['Bank Transfer', 'Cash', 'Card', 'Credit Card', 'Cheque', 'Auto Debit', 'Online']
 const DEFAULT_PEOPLE = ['Me', 'Family', 'Others']
 
 export function TransactionModal({
@@ -52,16 +52,22 @@ export function TransactionModal({
   const cats = useMemo(() => categoriesOf(categories, type), [categories, type])
   const catNames = cats.length ? cats.map((c) => c.name) : isIncome ? FALLBACK_INCOME : FALLBACK_EXPENSE
 
+  // Income can only land in a bank or cash account; an expense can also be
+  // charged to a card. Never the generic account list — see lib/accounting.ts.
+  const eligibleAccounts = useMemo(
+    () => (isIncome ? depositAccounts(accounts) : paymentAccounts(accounts)),
+    [accounts, isIncome],
+  )
+
   const blank = {
     description: '',
     amount: '',
     date: TODAY,
     category: catNames[0] ?? '',
     subcategory: '',
-    accountId: accounts[0]?.id ?? '',
+    accountId: eligibleAccounts[0]?.id ?? '',
     currency: 'AED' as Currency,
     person: people[0]?.name ?? 'Me',
-    method: METHODS[0],
     store: '',
     weight: '',
     weightUnit: 'kg' as WeightUnit,
@@ -81,14 +87,13 @@ export function TransactionModal({
         accountId: editing.accountId,
         currency: editing.currency,
         person: editing.person ?? DEFAULT_PEOPLE[0],
-        method: editing.method ?? METHODS[0],
         store: editing.store ?? '',
         weight: editing.weight ? String(editing.weight) : '',
         weightUnit: editing.weightUnit ?? 'kg',
         notes: editing.notes ?? '',
       })
     } else {
-      setForm({ ...blank, category: catNames[0] ?? '', accountId: accounts[0]?.id ?? '' })
+      setForm({ ...blank, category: catNames[0] ?? '', accountId: eligibleAccounts[0]?.id ?? '' })
     }
     touched.current = Boolean(editing)
     setDismissed(false)
@@ -206,7 +211,6 @@ export function TransactionModal({
         currency: (parsed.currency as Currency) || f.currency,
         store: parsed.store ?? f.store,
         person: parsed.person || f.person,
-        method: parsed.method || f.method,
       }))
       setQuickOpen(false)
       setQuickText('')
@@ -216,19 +220,18 @@ export function TransactionModal({
     setQuickBusy(false)
   }
 
-  const card = accounts.find((a) => a.id === form.accountId)
-  const usingCard = form.method === 'Credit Card'
-  const cardAccounts = accounts.filter((a) => a.type === 'card')
+  const account = accounts.find((a) => a.id === form.accountId)
+  const usingCard = !isIncome && account?.type === 'card'
   const cycle =
-    usingCard && card?.statementDay && card?.dueDay
-      ? statementFor(form.date, card.statementDay, card.dueDay)
+    usingCard && account?.statementDay && account?.dueDay
+      ? statementFor(form.date, account.statementDay, account.dueDay)
       : null
 
   const amountValid = Number(form.amount) > 0
-  const canSave = form.description.trim().length > 0 && amountValid
+  const canSave = form.description.trim().length > 0 && amountValid && Boolean(form.accountId)
 
   const submit = () => {
-    if (!canSave) return
+    if (!canSave || !account) return
     const payload = {
       type,
       date: form.date,
@@ -239,7 +242,9 @@ export function TransactionModal({
       amount: Number(form.amount),
       currency: form.currency,
       person: form.person,
-      method: form.method,
+      // Derived from the chosen account, never a separate choice — see the
+      // FINAL ACCOUNTING RULE: the selected account IS the payment source.
+      method: methodFor(account.type),
       store: form.store.trim() || undefined,
       weight: Number(form.weight) > 0 ? Number(form.weight) : undefined,
       weightUnit: Number(form.weight) > 0 ? form.weightUnit : undefined,
@@ -453,22 +458,24 @@ export function TransactionModal({
               </select>
             </Field>
 
-            <Field label="Account">
+            <Field label={isIncome ? 'Deposit to' : 'Paid from'} className="col-span-2">
               <select className="input" value={form.accountId} onChange={(e) => set('accountId', e.target.value)}>
-                {accounts.length === 0 && <option value="">No accounts yet — add one first</option>}
-                {accounts.map((a) => (
+                {eligibleAccounts.length === 0 && (
+                  <option value="">
+                    {isIncome ? 'No bank or cash account yet — add one first' : 'No accounts yet — add one first'}
+                  </option>
+                )}
+                {eligibleAccounts.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name}
+                    {accountLabel(a)}
                   </option>
                 ))}
               </select>
-            </Field>
-            <Field label="Payment Method">
-              <select className="input" value={form.method} onChange={(e) => set('method', e.target.value)}>
-                {METHODS.map((m) => (
-                  <option key={m}>{m}</option>
-                ))}
-              </select>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {isIncome
+                  ? 'This account\'s balance increases by the amount above.'
+                  : 'This is the payment source — the FINAL ACCOUNTING RULE. Charging a card increases what you owe on it.'}
+              </p>
             </Field>
           </div>
 
@@ -476,21 +483,6 @@ export function TransactionModal({
           {usingCard && (
             <div className="rounded-xl bg-brand-50/60 border border-brand-100 p-3.5 space-y-3">
               <p className="text-[12px] font-bold text-slate-700">Credit Card</p>
-
-              {cardAccounts.length > 0 && (
-                <select
-                  className="input bg-white"
-                  value={cardAccounts.some((a) => a.id === form.accountId) ? form.accountId : ''}
-                  onChange={(e) => set('accountId', e.target.value)}
-                >
-                  <option value="">Select the card this went on</option>
-                  {cardAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} {a.details && a.details !== '—' ? `· ${a.details}` : ''}
-                    </option>
-                  ))}
-                </select>
-              )}
 
               {cycle ? (
                 <>
@@ -519,9 +511,7 @@ export function TransactionModal({
               ) : (
                 <p className="text-[11.5px] text-slate-600 flex items-start gap-1.5">
                   <Info size={13} className="text-slate-400 mt-0.5 shrink-0" />
-                  {cardAccounts.length === 0
-                    ? 'Add a Credit Card account to see its statement period and due date here.'
-                    : 'Set a statement day and due day on this card (Accounts → edit) to see its billing cycle.'}
+                  Set a statement day and due day on this card (Accounts → edit) to see its billing cycle.
                 </p>
               )}
             </div>

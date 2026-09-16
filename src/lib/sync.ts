@@ -10,6 +10,7 @@ export interface RemoteData {
   settings: Settings
   accounts: any[]
   transactions: any[]
+  transfers: any[]
   budgets: any[]
   loans: any[]
   people: any[]

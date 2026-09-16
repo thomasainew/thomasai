@@ -176,3 +176,21 @@ export interface Subcategory {
   name: string
   sort: number
 }
+
+export type TransferPurpose = 'Loan payment' | 'Credit card payment' | 'Cash withdrawal' | 'Other'
+
+/**
+ * A movement of value between two of your own accounts (or into a loan).
+ * Never income or expense — see src/lib/accounting.ts for the accounting rule.
+ */
+export interface Transfer {
+  id: string
+  date: string
+  fromAccountId: string
+  toKind: 'account' | 'loan'
+  toId: string
+  amount: number
+  currency: Currency
+  purpose: TransferPurpose
+  notes?: string
+}

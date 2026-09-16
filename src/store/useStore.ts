@@ -2,12 +2,13 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
   Account, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch, Settings,
-  Subcategory, Transaction,
+  Subcategory, Transaction, Transfer,
 } from '@/types'
 import {
   ACCOUNTS, BILLS, BUDGETS, DOCUMENTS, GOALS, LOANS, NOTES, PEOPLE, PRICE_WATCH, SETTINGS, TRANSACTIONS,
 } from '@/data/seed'
 import { setBaseCurrency, uid } from '@/lib/format'
+import { accountDelta, round2 } from '@/lib/accounting'
 import { DEFAULT_CATEGORIES } from '@/data/categories'
 import type { Analysis } from '@/lib/gemini'
 import { hasSupabase } from '@/lib/supabase'
@@ -19,6 +20,7 @@ interface State {
   settings: Settings
   accounts: Account[]
   transactions: Transaction[]
+  transfers: Transfer[]
   budgets: BudgetCategory[]
   loans: Loan[]
   people: Person[]
@@ -56,6 +58,10 @@ interface State {
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
   removeTransaction: (id: string) => void
 
+  /** Double-entry movement between accounts (or into a loan) — never income or expense. */
+  addTransfer: (t: Omit<Transfer, 'id'>) => void
+  removeTransfer: (id: string) => void
+
   addAccount: (a: Omit<Account, 'id'>) => void
   updateAccount: (id: string, patch: Partial<Account>) => void
   removeAccount: (id: string) => void
@@ -67,7 +73,6 @@ interface State {
   addLoan: (l: Omit<Loan, 'id'>) => void
   updateLoan: (id: string, patch: Partial<Loan>) => void
   removeLoan: (id: string) => void
-  payLoan: (id: string, amount: number) => void
 
   addPerson: (p: Omit<Person, 'id'>) => void
   updatePerson: (id: string, patch: Partial<Person>) => void
@@ -118,6 +123,7 @@ const seedState = () => ({
   settings: SETTINGS,
   accounts: ACCOUNTS,
   transactions: TRANSACTIONS,
+  transfers: [] as Transfer[],
   budgets: BUDGETS,
   loans: LOANS,
   people: PEOPLE,
@@ -170,6 +176,33 @@ function patchList<T extends { id: string }>(
   return next
 }
 
+/**
+ * Move `delta` onto one account's balance and push the result. Every place
+ * that changes an account's balance because of a transaction or transfer
+ * goes through here, so "the account balance" and "what actually happened"
+ * can never drift apart — see the FINAL ACCOUNTING RULE in the corrections spec.
+ */
+function applyAccountDelta(accountId: string, delta: number) {
+  if (!delta) return
+  const accounts = useStore.getState().accounts.map((a) =>
+    a.id === accountId ? { ...a, balance: round2(a.balance + delta) } : a,
+  )
+  useStore.setState({ accounts })
+  push('accounts', accounts.find((a) => a.id === accountId))
+}
+
+/** Reduce a loan's outstanding balance by `amount` and push the result. */
+function applyLoanDelta(loanId: string, delta: number) {
+  if (!delta) return
+  const loans = useStore.getState().loans.map((l) =>
+    l.id === loanId
+      ? { ...l, outstanding: Math.max(0, round2(l.outstanding + delta)), status: l.outstanding + delta <= 0 ? ('Closed' as const) : l.status === 'Closed' ? ('On Track' as const) : l.status }
+      : l,
+  )
+  useStore.setState({ loans })
+  push('loans', loans.find((l) => l.id === loanId))
+}
+
 export const useStore = create<State>()(
   persist(
     (set, get) => ({
@@ -195,6 +228,7 @@ export const useStore = create<State>()(
           settings: data.settings,
           accounts: data.accounts,
           transactions: data.transactions,
+          transfers: data.transfers ?? [],
           budgets: data.budgets,
           loans: data.loans,
           people: data.people,
@@ -224,12 +258,61 @@ export const useStore = create<State>()(
         const item = { ...t, id: uid('t') }
         set({ transactions: [item, ...get().transactions] })
         push('transactions', item)
+        const account = get().accounts.find((a) => a.id === item.accountId)
+        if (account) applyAccountDelta(account.id, accountDelta(item.type, account.type, item.amount))
       },
-      updateTransaction: (id, patch) =>
-        set({ transactions: patchList(get().transactions, id, patch, 'transactions') }),
+      updateTransaction: (id, patch) => {
+        const before = get().transactions.find((t) => t.id === id)
+        set({ transactions: patchList(get().transactions, id, patch, 'transactions') })
+        if (!before) return
+        const after = { ...before, ...patch }
+        // Reverse the old posting, then apply the new one — same account or
+        // not, amount changed or not, this always lands on the right balance.
+        const prevAccount = get().accounts.find((a) => a.id === before.accountId)
+        if (prevAccount) applyAccountDelta(prevAccount.id, -accountDelta(before.type, prevAccount.type, before.amount))
+        const nextAccount = get().accounts.find((a) => a.id === after.accountId)
+        if (nextAccount) applyAccountDelta(nextAccount.id, accountDelta(after.type, nextAccount.type, after.amount))
+      },
       removeTransaction: (id) => {
+        const item = get().transactions.find((t) => t.id === id)
         set({ transactions: get().transactions.filter((t) => t.id !== id) })
         drop('transactions', id)
+        if (!item) return
+        const account = get().accounts.find((a) => a.id === item.accountId)
+        if (account) applyAccountDelta(account.id, -accountDelta(item.type, account.type, item.amount))
+      },
+
+      // ----------------------------------------------------------- transfers
+      addTransfer: (t) => {
+        const item = { ...t, id: uid('tr') }
+        set({ transfers: [item, ...get().transfers] })
+        push('transfers', item)
+
+        const from = get().accounts.find((a) => a.id === item.fromAccountId)
+        if (from) applyAccountDelta(from.id, -item.amount)
+
+        if (item.toKind === 'loan') {
+          applyLoanDelta(item.toId, -item.amount)
+        } else {
+          const to = get().accounts.find((a) => a.id === item.toId)
+          if (to) applyAccountDelta(to.id, to.type === 'card' ? -item.amount : item.amount)
+        }
+      },
+      removeTransfer: (id) => {
+        const item = get().transfers.find((t) => t.id === id)
+        set({ transfers: get().transfers.filter((t) => t.id !== id) })
+        drop('transfers', id)
+        if (!item) return
+
+        const from = get().accounts.find((a) => a.id === item.fromAccountId)
+        if (from) applyAccountDelta(from.id, item.amount)
+
+        if (item.toKind === 'loan') {
+          applyLoanDelta(item.toId, item.amount)
+        } else {
+          const to = get().accounts.find((a) => a.id === item.toId)
+          if (to) applyAccountDelta(to.id, to.type === 'card' ? item.amount : -item.amount)
+        }
       },
 
       // -------------------------------------------------------------- accounts
@@ -266,17 +349,6 @@ export const useStore = create<State>()(
       removeLoan: (id) => {
         set({ loans: get().loans.filter((l) => l.id !== id) })
         drop('loans', id)
-      },
-      payLoan: (id, amount) => {
-        const loan = get().loans.find((l) => l.id === id)
-        if (!loan) return
-        const outstanding = Math.max(0, loan.outstanding - amount)
-        set({
-          loans: patchList<Loan>(get().loans, id, {
-            outstanding,
-            status: outstanding <= 0 ? 'Closed' : 'On Track',
-          }, 'loans'),
-        })
       },
 
       // ---------------------------------------------------------------- people

@@ -1,21 +1,23 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, BarChart3, FileText, Landmark, Plus,
+  ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, BarChart3, CreditCard, FileText, Landmark, Plus,
   Receipt, Sparkles, StickyNote, Users, Wallet, PieChart as PieIcon, X,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Badge, Progress, StatCard, ViewAll, statusTone } from '@/components/ui/Primitives'
 import { Donut, DonutLegend, IncomeExpenseBars } from '@/components/charts/Charts'
 import { TransactionModal } from '@/components/TransactionModal'
+import { TransferModal } from '@/components/TransferModal'
 import { InsightsPanel } from '@/components/InsightsPanel'
 import { TODAY, convert, daysLeft, fmtDate, greeting, money, pct } from '@/lib/format'
-import { PREV_MONTH, budgetsWithSpend, byPerson, currentMonthLabel, docStatus, liquidBalance, loanSummary, monthPlan, monthlySeries, totals } from '@/lib/selectors'
+import { PREV_MONTH, accountTotals, availableMoney, budgetsWithSpend, byPerson, currentMonthLabel, docStatus, loanSummary, monthPlan, monthlySeries, netPosition, totals } from '@/lib/selectors'
 import type { Currency, TxnType } from '@/types'
 
 export default function Dashboard() {
   const { settings, transactions, accounts, budgets: rawBudgets, loans, documents, notes, goals, bills } = useStore()
   const [modal, setModal] = useState<TxnType | null>(null)
+  const [transferOpen, setTransferOpen] = useState(false)
   const [tipOpen, setTipOpen] = useState(true)
   const [noteFilter, setNoteFilter] = useState('All')
 
@@ -27,7 +29,11 @@ export default function Dashboard() {
   const ls = useMemo(() => loanSummary(loans), [loans])
   const budgets = useMemo(() => budgetsWithSpend(transactions, rawBudgets), [transactions, rawBudgets])
 
-  const balance = liquidBalance(accounts)
+  // Liquid funds, debt and net position are kept as separate figures rather
+  // than one blended "Total Balance" — see the corrections spec, problem 6.
+  const available = availableMoney(accounts)
+  const cardOutstanding = accountTotals(accounts).card
+  const net = netPosition(accounts, loans)
   const netDelta = prev.net ? Math.round(((t.net - prev.net) / Math.abs(prev.net)) * 100) : 0
   const forOthers = persons.find((p) => p.name === 'Others')?.value ?? 0
   const othersCount = transactions.filter((x) => x.person === 'Others' || x.person === 'Family').length
@@ -52,6 +58,9 @@ export default function Dashboard() {
           </button>
           <button className="btn-rose" onClick={() => setModal('expense')}>
             <Plus size={15} /> Add Expense
+          </button>
+          <button className="btn-ghost" onClick={() => setTransferOpen(true)}>
+            <ArrowLeftRight size={15} /> Transfer
           </button>
           <Link to="/bills" className="btn-ghost">
             <Receipt size={15} /> Manage Bills
@@ -79,10 +88,10 @@ export default function Dashboard() {
       )}
 
       {/* Stat cards */}
-      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Total Balance"
-          value={money(balance)}
+          label="Available Money"
+          value={money(available)}
           icon={<Wallet size={20} />}
           tint="#3b82f6"
           footer={
@@ -135,6 +144,27 @@ export default function Dashboard() {
           icon={<Landmark size={20} />}
           tint="#a855f7"
           footer={<span className="text-slate-400">{ls.dueThisMonth.length} payments due</span>}
+        />
+        <StatCard
+          label="Credit Card Outstanding"
+          value={money(cardOutstanding)}
+          icon={<CreditCard size={20} />}
+          tint="#ef4444"
+          footer={<span className="text-slate-400">What you owe across all cards</span>}
+        />
+        <StatCard
+          label="Loans Outstanding"
+          value={money(ls.outstanding)}
+          icon={<Landmark size={20} />}
+          tint="#f97316"
+          footer={<span className="text-slate-400">{ls.active.length} active loan{ls.active.length === 1 ? '' : 's'}</span>}
+        />
+        <StatCard
+          label="Net Position"
+          value={money(net)}
+          icon={<PieIcon size={20} />}
+          tint={net >= 0 ? '#22c55e' : '#ef4444'}
+          footer={<span className="text-slate-400">Available money, less cards and loans</span>}
         />
       </div>
 
@@ -466,6 +496,7 @@ export default function Dashboard() {
       </Card>
 
       <TransactionModal open={modal !== null} onClose={() => setModal(null)} type={modal ?? 'income'} />
+      <TransferModal open={transferOpen} onClose={() => setTransferOpen(false)} />
     </div>
   )
 }

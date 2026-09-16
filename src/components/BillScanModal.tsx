@@ -3,9 +3,9 @@ import { AlertCircle, Check, FileText, Loader2, ScanLine, Trash2, Upload } from 
 import { Modal, Field } from '@/components/ui/Modal'
 import { PURCHASE_CATEGORIES, readFileAsDataUrl, scanBill, type ScannedItem } from '@/lib/gemini'
 import { money, TODAY } from '@/lib/format'
+import { accountLabel, methodFor, paymentAccounts } from '@/lib/accounting'
 import { WEIGHT_UNITS, type Account, type Currency, type Transaction, type WeightUnit } from '@/types'
 
-const METHODS = ['Bank Transfer', 'Cash', 'Card', 'Credit Card', 'Cheque', 'Auto Debit', 'Online']
 const MAX_MB = 8
 
 interface Row extends ScannedItem {
@@ -34,8 +34,11 @@ export function BillScanModal({
   const [rows, setRows] = useState<Row[] | null>(null)
   const [meta, setMeta] = useState({ store: '', date: '', currency: 'AED' as Currency, total: 0 })
   const [person, setPerson] = useState(people[0] ?? 'Me')
-  const [method, setMethod] = useState(METHODS[0])
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  // Deliberately not defaulted to an account: the scan/save actions stay
+  // disabled until the user picks one, so an account is never silently
+  // chosen for them — see the scanner validation rule in the corrections spec.
+  const [accountId, setAccountId] = useState('')
+  const eligibleAccounts = paymentAccounts(accounts)
   const abort = useRef<AbortController | null>(null)
 
   // Reset when the modal closes, and drop any in-flight request.
@@ -47,11 +50,11 @@ export function BillScanModal({
     setRows(null)
     setError(null)
     setBusy(false)
+    setAccountId('')
     setMeta({ store: '', date: '', currency: 'AED', total: 0 })
   }, [open])
 
   useEffect(() => setPerson(people[0] ?? 'Me'), [people])
-  useEffect(() => setAccountId((id) => id || accounts[0]?.id || ''), [accounts])
 
   const choose = async (f: File | undefined) => {
     if (!f) return
@@ -111,8 +114,10 @@ export function BillScanModal({
   /** Transactions carry their own currency, so the receipt's is kept as-is. */
   const lineTotal = (r: Row) => Math.round(r.price * r.qty * 100) / 100
   const chosenTotal = chosen.reduce((a, r) => a + lineTotal(r), 0)
+  const account = accounts.find((a) => a.id === accountId)
 
   const confirm = () => {
+    if (!account) return
     for (const r of chosen) {
       onAdd({
         type: 'expense',
@@ -124,7 +129,9 @@ export function BillScanModal({
         amount: lineTotal(r),
         currency: meta.currency,
         person,
-        method,
+        // Derived from the chosen Paid from account — every line on one
+        // receipt is one payment, so they all share the same source.
+        method: methodFor(account.type),
         store: meta.store.trim() || undefined,
         qty: r.qty,
         weight: r.weight,
@@ -148,12 +155,12 @@ export function BillScanModal({
             Cancel
           </button>
           {rows ? (
-            <button className="btn-primary disabled:opacity-50" disabled={!chosen.length} onClick={confirm}>
+            <button className="btn-primary disabled:opacity-50" disabled={!chosen.length || !account} onClick={confirm}>
               <Check size={15} /> Add {chosen.length} expense{chosen.length === 1 ? '' : 's'}
               {chosen.length > 0 ? ` · ${money(chosenTotal, meta.currency)}` : ''}
             </button>
           ) : (
-            <button className="btn-primary disabled:opacity-50" disabled={!file || busy} onClick={extract}>
+            <button className="btn-primary disabled:opacity-50" disabled={!file || busy || !accountId} onClick={extract}>
               {busy ? <Loader2 size={15} className="animate-spin" /> : <ScanLine size={15} />}
               {busy ? 'Reading bill…' : 'Extract details'}
             </button>
@@ -169,7 +176,19 @@ export function BillScanModal({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Paid from" className="w-56">
+            <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <option value="">
+                {eligibleAccounts.length === 0 ? 'No accounts yet — add one first' : 'Select an account'}
+              </option>
+              {eligibleAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {accountLabel(a)}
+                </option>
+              ))}
+            </select>
+          </Field>
           <label className="btn-ghost cursor-pointer">
             <Upload size={15} /> {file ? 'Choose another' : 'Choose bill image'}
             <input
@@ -180,11 +199,16 @@ export function BillScanModal({
             />
           </label>
           {file && (
-            <span className="text-[12px] text-slate-500 inline-flex items-center gap-1.5">
+            <span className="text-[12px] text-slate-500 inline-flex items-center gap-1.5 pb-2.5">
               <FileText size={13} /> {file.name} · {(file.size / 1024).toFixed(0)} KB
             </span>
           )}
         </div>
+        {!accountId && (
+          <p className="text-[11.5px] text-slate-500 -mt-2">
+            Choose the account this bill was paid from before scanning — it can't be changed per line item.
+          </p>
+        )}
 
         {preview && file?.type.startsWith('image/') && (
           <img
@@ -203,7 +227,7 @@ export function BillScanModal({
 
         {rows && (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <Field label="Store">
                 <input className="input" value={meta.store} onChange={(e) => setMeta({ ...meta, store: e.target.value })} />
               </Field>
@@ -221,26 +245,14 @@ export function BillScanModal({
                   <option>USD</option>
                 </select>
               </Field>
-              <Field label="Paid with">
-                <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
-                  {METHODS.map((m) => (
-                    <option key={m}>{m}</option>
-                  ))}
-                </select>
-              </Field>
             </div>
 
             <div className="flex flex-wrap items-end gap-3">
-              <Field label="Account" className="w-52">
-                <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                  {accounts.length === 0 && <option value="">No accounts yet</option>}
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              {account && (
+                <p className="text-[11.5px] text-slate-500 pb-2.5">
+                  Paid from <b className="text-slate-700">{accountLabel(account)}</b>
+                </p>
+              )}
               <Field label="Person" className="w-44">
                 <select className="input" value={person} onChange={(e) => setPerson(e.target.value)}>
                   {(people.length ? people : ['Me', 'Family', 'Others']).map((p) => (
