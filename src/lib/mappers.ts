@@ -1,6 +1,6 @@
 import type {
-  Account, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch, Settings,
-  Subcategory, Transaction, Transfer,
+  Account, AdvisorMessage, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch,
+  Settings, Subcategory, Transaction, Transfer,
 } from '@/types'
 
 /** Every syncable collection in the store, and the table that backs it. */
@@ -8,6 +8,7 @@ export const TABLES = {
   accounts: 'accounts',
   transactions: 'transactions',
   transfers: 'transfers',
+  advisorMessages: 'advisor_messages',
   budgets: 'budgets',
   loans: 'loans',
   people: 'people',
@@ -80,6 +81,11 @@ export const MAPPERS: {
       id: r.id, date: r.date, fromAccountId: r.from_account_id, toKind: r.to_kind, toId: r.to_id,
       amount: num(r.amount), currency: r.currency, purpose: r.purpose, notes: r.notes ?? undefined,
     }),
+  },
+
+  advisorMessages: {
+    to: (m: AdvisorMessage) => ({ id: m.id, from: m.from, text: m.text, at: m.at }),
+    from: (r): AdvisorMessage => ({ id: r.id, from: r.from, text: r.text, at: r.at }),
   },
 
   budgets: {

@@ -9,7 +9,6 @@ import { Card, CardHead, Badge, Progress, StatCard, ViewAll, statusTone } from '
 import { Donut, DonutLegend, IncomeExpenseBars } from '@/components/charts/Charts'
 import { TransactionModal } from '@/components/TransactionModal'
 import { TransferModal } from '@/components/TransferModal'
-import { InsightsPanel } from '@/components/InsightsPanel'
 import { TODAY, convert, daysLeft, fmtDate, greeting, money, pct } from '@/lib/format'
 import { PREV_MONTH, accountTotals, availableMoney, budgetsWithSpend, byPerson, currentMonthLabel, docStatus, loanSummary, monthPlan, monthlySeries, netPosition, totals } from '@/lib/selectors'
 import type { Currency, TxnType } from '@/types'
@@ -167,8 +166,6 @@ export default function Dashboard() {
           footer={<span className="text-slate-400">Available money, less cards and loans</span>}
         />
       </div>
-
-      <InsightsPanel />
 
       {/* Charts row */}
       <div className="grid gap-4 grid-cols-1 xl:grid-cols-12">

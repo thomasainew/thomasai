@@ -185,6 +185,16 @@ export interface Category {
   sort: number
 }
 
+export type AdvisorSpeaker = 'user' | 'achachan' | 'chachan'
+
+/** One line in the AI Advisor chat — see src/pages/AIAdvisor.tsx. */
+export interface AdvisorMessage {
+  id: string
+  from: AdvisorSpeaker
+  text: string
+  at: string
+}
+
 export interface Subcategory {
   id: string
   categoryId: string

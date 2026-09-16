@@ -27,6 +27,7 @@ const NAV = [
   { to: '/categories', label: 'Categories', icon: FolderTree },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
+  { to: '/ai-advisor', label: 'AI Advisor', icon: Sparkles },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ] as const
 

@@ -666,3 +666,76 @@ ${JSON.stringify(facts)}`
   })
   return String(answer).trim()
 }
+
+// ---------------------------------------------------------------------------
+// AI Advisor — two family-elder personas discussing the same facts pack.
+// ---------------------------------------------------------------------------
+
+export interface AdvisorTurn {
+  from: 'user' | 'achachan' | 'chachan'
+  text: string
+}
+
+export interface AdvisorReply {
+  achachan: string
+  chachan: string
+}
+
+const ADVISOR_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    achachan: { type: 'STRING', description: "Achachan's reply. Malayalam only." },
+    chachan: { type: 'STRING', description: "Chachan's reply. Malayalam only." },
+  },
+  required: ['achachan', 'chachan'],
+}
+
+/**
+ * Two replies to the same message, in two distinct voices, both grounded in
+ * the same facts pack — never invent a number, category or merchant that
+ * is not in DATA. Malayalam only; code-mixing a Latin name or a number is
+ * normal and expected, exactly how a real family chat reads.
+ */
+export async function askAdvisors(
+  message: string,
+  facts: unknown,
+  history: AdvisorTurn[] = [],
+  signal?: AbortSignal,
+): Promise<AdvisorReply> {
+  const prior = history
+    .slice(-8)
+    .map((t) => `${t.from}: ${t.text}`)
+    .join('\n')
+
+  const prompt = `You are writing two replies for a personal finance chat app, in the voice of two
+different elder family members who both love this person and both know their real
+financial records (in DATA below). This is a Malayali family, so both reply in
+Malayalam only — no English sentences, though a Latin name, a brand or a number is
+fine mixed in, exactly like a real family WhatsApp chat.
+
+ACHACHAN — the grandfather. Warm, gentle, big-picture. He connects money habits to
+life outcomes: security, peace of mind, the kind of future being built one habit at
+a time. He encourages rather than scolds, and he is proud of real progress when the
+DATA shows it.
+
+CHACHAN — a sharp, practical family elder who actually manages money for a living.
+Direct and specific. He names the exact category or merchant that is high, cites the
+real figures from DATA, and gives one concrete, actionable step — a budget number, an
+EMI plan, a saving target. He is caring but does not soften a real problem.
+
+Ground every claim either persona makes in DATA. Never invent a category, merchant or
+figure that is not there — if DATA does not cover something, have that persona say so
+plainly rather than guess. Two or three sentences each. No headings, no markdown.
+
+${prior ? `CONVERSATION SO FAR:\n${prior}\n\n` : ''}THE PERSON'S MESSAGE: ${message}
+
+DATA:
+${JSON.stringify(facts)}`
+
+  return callGemini<AdvisorReply>({
+    parts: [{ text: prompt }],
+    schema: ADVISOR_SCHEMA,
+    temperature: 0.5,
+    signal,
+  })
+}

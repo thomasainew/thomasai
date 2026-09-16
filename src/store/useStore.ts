@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
-  Account, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch, Settings,
-  Subcategory, Transaction, Transfer,
+  Account, AdvisorMessage, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch,
+  Settings, Subcategory, Transaction, Transfer,
 } from '@/types'
 import {
   ACCOUNTS, BILLS, BUDGETS, DOCUMENTS, GOALS, LOANS, NOTES, PEOPLE, PRICE_WATCH, SETTINGS, TRANSACTIONS,
@@ -21,6 +21,7 @@ interface State {
   accounts: Account[]
   transactions: Transaction[]
   transfers: Transfer[]
+  advisorMessages: AdvisorMessage[]
   budgets: BudgetCategory[]
   loans: Loan[]
   people: Person[]
@@ -61,6 +62,9 @@ interface State {
   /** Double-entry movement between accounts (or into a loan) — never income or expense. */
   addTransfer: (t: Omit<Transfer, 'id'>) => void
   removeTransfer: (id: string) => void
+
+  addAdvisorMessage: (m: Omit<AdvisorMessage, 'id'>) => void
+  clearAdvisorMessages: () => void
 
   addAccount: (a: Omit<Account, 'id'>) => void
   updateAccount: (id: string, patch: Partial<Account>) => void
@@ -124,6 +128,7 @@ const seedState = () => ({
   accounts: ACCOUNTS,
   transactions: TRANSACTIONS,
   transfers: [] as Transfer[],
+  advisorMessages: [] as AdvisorMessage[],
   budgets: BUDGETS,
   loans: LOANS,
   people: PEOPLE,
@@ -229,6 +234,7 @@ export const useStore = create<State>()(
           accounts: data.accounts,
           transactions: data.transactions,
           transfers: data.transfers ?? [],
+          advisorMessages: data.advisorMessages ?? [],
           budgets: data.budgets,
           loans: data.loans,
           people: data.people,
@@ -313,6 +319,17 @@ export const useStore = create<State>()(
           const to = get().accounts.find((a) => a.id === item.toId)
           if (to) applyAccountDelta(to.id, to.type === 'card' ? item.amount : -item.amount)
         }
+      },
+
+      // ------------------------------------------------------- ai advisor chat
+      addAdvisorMessage: (m) => {
+        const item = { ...m, id: uid('adv') }
+        set({ advisorMessages: [...get().advisorMessages, item] })
+        push('advisorMessages', item)
+      },
+      clearAdvisorMessages: () => {
+        get().advisorMessages.forEach((m) => drop('advisorMessages', m.id))
+        set({ advisorMessages: [] })
       },
 
       // -------------------------------------------------------------- accounts
