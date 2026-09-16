@@ -136,6 +136,28 @@ export function StatCard({
   )
 }
 
+export function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cx(
+        'relative h-6 w-11 shrink-0 rounded-full transition-colors cursor-pointer',
+        checked ? 'bg-brand-600' : 'bg-slate-200',
+      )}
+    >
+      <span
+        className={cx(
+          'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-5' : 'translate-x-0.5',
+        )}
+      />
+    </button>
+  )
+}
+
 export function Empty({ text }: { text: string }) {
   return <div className="py-12 text-center text-[13px] text-slate-400">{text}</div>
 }

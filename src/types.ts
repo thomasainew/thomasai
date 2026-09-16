@@ -56,6 +56,17 @@ export interface BudgetCategory {
   budget: number
   spent: number
   color: string
+  /** How often `budget` applies. Spend tracking is always monthly regardless. */
+  period?: 'Monthly' | 'Weekly' | 'Yearly'
+  /** Wires this budget to one of your own categories, for exact spend matching. */
+  categoryName?: string
+  subcategoryName?: string
+  /** When false, transactions never auto-post to this budget's spend. */
+  autoMatch?: boolean
+  /** Roll unspent amount into next month's budget. Not yet applied automatically. */
+  rollover?: boolean
+  /** Percent of budget at which a warning appears. */
+  alertThreshold?: number
 }
 
 export interface Loan {

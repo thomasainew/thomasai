@@ -149,11 +149,20 @@ export function hardWarnings(
   const out: { title: string; detail: string }[] = []
 
   for (const b of budgetsWithSpend(transactions, budgets, month)) {
-    if (b.budget > 0 && b.spent > b.budget) {
+    if (b.budget <= 0) continue
+    if (b.spent > b.budget) {
       out.push({
         title: `${b.name} is over budget`,
         detail: `Spent ${b.spent.toLocaleString()} of ${b.budget.toLocaleString()}.`,
       })
+    } else {
+      const threshold = b.alertThreshold ?? 80
+      if ((b.spent / b.budget) * 100 >= threshold) {
+        out.push({
+          title: `${b.name} is approaching its budget`,
+          detail: `Spent ${b.spent.toLocaleString()} of ${b.budget.toLocaleString()} (${Math.round((b.spent / b.budget) * 100)}%).`,
+        })
+      }
     }
   }
 

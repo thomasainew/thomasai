@@ -3,17 +3,55 @@ import { CopyPlus, Gauge, History, PiggyBank, Plus, Target, Trash2, Wallet } fro
 import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useStore } from '@/store/useStore'
-import { Card, CardHead, PageHeader, Progress, StatCard, Empty } from '@/components/ui/Primitives'
+import { Card, CardHead, PageHeader, Progress, StatCard, Empty, Switch } from '@/components/ui/Primitives'
 import { Donut, DonutLegend } from '@/components/charts/Charts'
 import { Modal, Field } from '@/components/ui/Modal'
 import { compact, money, pct } from '@/lib/format'
-import { budgetsWithSpend, currentMonthLabel, unbudgetedSpend } from '@/lib/selectors'
+import { budgetsWithSpend, categoriesOf, currentMonthLabel, subcategoriesOf, unbudgetedSpend } from '@/lib/selectors'
 import { suggestBudgets } from '@/lib/budgetSuggest'
+import type { BudgetCategory } from '@/types'
+
+const ICON_OPTIONS = [
+  { label: 'Wallet', icon: '👛' },
+  { label: 'Groceries', icon: '🛒' },
+  { label: 'Home', icon: '🏠' },
+  { label: 'Transport', icon: '🚗' },
+  { label: 'Health', icon: '➕' },
+  { label: 'Shopping', icon: '🛍️' },
+  { label: 'Restaurants', icon: '🍽️' },
+  { label: 'Entertainment', icon: '🎬' },
+  { label: 'Education', icon: '🎓' },
+  { label: 'Family', icon: '👨‍👩‍👦' },
+  { label: 'Other', icon: '📦' },
+]
+const PERIODS: BudgetCategory['period'][] = ['Monthly', 'Weekly', 'Yearly']
+const THRESHOLDS = [50, 60, 70, 80, 90, 100]
+
+const blankForm = () => ({
+  name: '',
+  icon: ICON_OPTIONS[0].icon,
+  budget: '',
+  color: '#3b82f6',
+  period: 'Monthly' as BudgetCategory['period'],
+  categoryName: '',
+  subcategoryName: '',
+  autoMatch: true,
+  rollover: false,
+  alertThreshold: 80,
+})
 
 export default function Budget() {
-  const { budgets: rawBudgets, transactions, settings, addBudget, updateBudget, removeBudget, updateSettings } = useStore()
+  const {
+    budgets: rawBudgets, transactions, settings, categories, subcategories,
+    addBudget, updateBudget, removeBudget, updateSettings, addSubcategory,
+  } = useStore()
   const [modal, setModal] = useState(false)
-  const [form, setForm] = useState({ name: '', icon: '📦', budget: '', color: '#3b82f6' })
+  const [form, setForm] = useState(blankForm())
+  const [newSub, setNewSub] = useState<string | null>(null)
+
+  const expenseCategories = useMemo(() => categoriesOf(categories, 'expense'), [categories])
+  const activeCategory = expenseCategories.find((c) => c.name === form.categoryName)
+  const subOptions = useMemo(() => subcategoriesOf(subcategories, activeCategory?.id), [subcategories, activeCategory])
 
   // Spend is derived from this month's expenses, so recording one moves the bar.
   const budgets = useMemo(() => budgetsWithSpend(transactions, rawBudgets), [transactions, rawBudgets])
@@ -42,9 +80,30 @@ export default function Budget() {
 
   const save = () => {
     if (!form.name.trim() || !Number(form.budget)) return
-    addBudget({ name: form.name.trim(), icon: form.icon || '📦', budget: Number(form.budget), spent: 0, color: form.color })
-    setForm({ name: '', icon: '📦', budget: '', color: '#3b82f6' })
+    addBudget({
+      name: form.name.trim(),
+      icon: form.icon || '📦',
+      budget: Number(form.budget),
+      spent: 0,
+      color: form.color,
+      period: form.period,
+      categoryName: form.categoryName || undefined,
+      subcategoryName: form.subcategoryName || undefined,
+      autoMatch: form.autoMatch,
+      rollover: form.rollover,
+      alertThreshold: form.alertThreshold,
+    })
+    setForm(blankForm())
+    setNewSub(null)
     setModal(false)
+  }
+
+  const createSubcategory = () => {
+    const name = (newSub ?? '').trim()
+    if (!name || !activeCategory) return
+    addSubcategory({ categoryId: activeCategory.id, name, sort: subOptions.length })
+    setForm((f) => ({ ...f, subcategoryName: name }))
+    setNewSub(null)
   }
 
   return (
@@ -272,29 +331,155 @@ export default function Budget() {
 
       <Modal
         open={modal}
-        onClose={() => setModal(false)}
-        title="Add Budget Category"
+        onClose={() => { setModal(false); setNewSub(null) }}
+        title="Add Budget"
+        subtitle="Set a spending limit and organize transactions automatically."
+        width="max-w-2xl"
         footer={
           <>
-            <button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button>
-            <button className="btn-primary" onClick={save}>Add Category</button>
+            <button className="btn-ghost" onClick={() => { setModal(false); setNewSub(null) }}>Cancel</button>
+            <button className="btn-primary" disabled={!form.name.trim() || !Number(form.budget)} onClick={save}>Create Budget</button>
           </>
         }
       >
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Category Name" className="col-span-2">
-            <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Education" autoFocus />
-          </Field>
-          <Field label="Icon (emoji)"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} maxLength={2} /></Field>
-          <Field label="Monthly Budget (AED)"><input className="input" type="number" value={form.budget} onChange={(e) => setForm({ ...form, budget: e.target.value })} placeholder="1000" /></Field>
-          <Field label="Colour" className="col-span-2">
-            <div className="flex gap-2 flex-wrap">
-              {['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#eab308'].map((c) => (
-                <button key={c} onClick={() => setForm({ ...form, color: c })}
-                  className={`h-8 w-8 rounded-lg cursor-pointer ${form.color === c ? 'ring-2 ring-offset-2 ring-slate-400' : ''}`} style={{ background: c }} />
-              ))}
+        <div className="space-y-5">
+          <div>
+            <p className="text-[12.5px] font-bold text-slate-800 mb-3">Budget Details</p>
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Budget Name *" className="col-span-3 sm:col-span-1">
+                <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Monthly Groceries" autoFocus />
+              </Field>
+              <Field label="Monthly Budget *">
+                <div className="flex">
+                  <span className="input w-14 rounded-r-none border-r-0 flex items-center justify-center bg-slate-50 text-slate-500 font-semibold px-0">AED</span>
+                  <input
+                    className="input rounded-l-none"
+                    type="number"
+                    min="0"
+                    value={form.budget}
+                    onChange={(e) => setForm({ ...form, budget: e.target.value })}
+                    placeholder="1,000"
+                  />
+                </div>
+              </Field>
+              <Field label="Budget Period">
+                <select className="input" value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value as BudgetCategory['period'] })}>
+                  {PERIODS.map((p) => <option key={p}>{p}</option>)}
+                </select>
+              </Field>
             </div>
+          </div>
+
+          <div>
+            <p className="text-[12.5px] font-bold text-slate-800 mb-3">Category Matching</p>
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Category *">
+                <select
+                  className="input"
+                  value={form.categoryName}
+                  onChange={(e) => { setForm({ ...form, categoryName: e.target.value, subcategoryName: '' }); setNewSub(null) }}
+                >
+                  <option value="">No category — match by name only</option>
+                  {expenseCategories.map((c) => (
+                    <option key={c.id} value={c.name}>{c.icon} {c.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Subcategory">
+                <select
+                  className="input disabled:bg-slate-50 disabled:text-slate-400"
+                  disabled={!activeCategory}
+                  value={form.subcategoryName}
+                  onChange={(e) => setForm({ ...form, subcategoryName: e.target.value })}
+                >
+                  <option value="">{activeCategory ? 'All sub-categories' : 'Choose a category first'}</option>
+                  {subOptions.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </Field>
+            </div>
+            {activeCategory && (
+              newSub !== null ? (
+                <div className="flex gap-2 mt-2">
+                  <input
+                    className="input h-8 text-[12.5px]"
+                    autoFocus
+                    value={newSub}
+                    onChange={(e) => setNewSub(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && createSubcategory()}
+                    placeholder="e.g. Vegetables"
+                  />
+                  <button className="btn-soft h-8 px-3 text-[12px]" onClick={createSubcategory}>Add</button>
+                  <button className="text-[11.5px] text-slate-400 hover:text-slate-600 cursor-pointer" onClick={() => setNewSub(null)}>Cancel</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setNewSub('')}
+                  className="mt-2 text-[12px] font-semibold text-brand-600 hover:text-brand-700 cursor-pointer inline-flex items-center gap-1"
+                >
+                  <Plus size={13} /> Create new subcategory
+                </button>
+              )
+            )}
+
+            <div className="mt-3 rounded-xl bg-slate-50 border border-[#eef2f8] p-3.5 flex items-start gap-3">
+              <Switch checked={form.autoMatch} onChange={(v) => setForm({ ...form, autoMatch: v })} />
+              <div>
+                <p className="text-[12.5px] font-bold text-slate-800">Auto-match transactions</p>
+                <p className="text-[11.5px] text-slate-500 mt-0.5">
+                  Transactions matching this category and subcategory will automatically update this budget.
+                </p>
+              </div>
+            </div>
+            {form.categoryName && (
+              <p className="mt-2 text-[11.5px] text-slate-500 bg-blue-50/60 border border-blue-100 rounded-xl px-3 py-2">
+                If no match is found, the transaction will be marked Uncategorised for your review.
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Icon">
+              <select className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })}>
+                {ICON_OPTIONS.map((o) => <option key={o.label} value={o.icon}>{o.icon} {o.label}</option>)}
+              </select>
+            </Field>
+            <Field label="Colour">
+              <div className="flex gap-2 flex-wrap items-center h-10">
+                {['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4', '#eab308'].map((c) => (
+                  <button key={c} onClick={() => setForm({ ...form, color: c })}
+                    className={`h-7 w-7 rounded-lg cursor-pointer ${form.color === c ? 'ring-2 ring-offset-2 ring-slate-400' : ''}`} style={{ background: c }} />
+                ))}
+              </div>
+            </Field>
+          </div>
+
+          <div className="rounded-xl border border-[#eef2f8] p-3.5 flex items-start gap-3">
+            <Switch checked={form.rollover} onChange={(v) => setForm({ ...form, rollover: v })} />
+            <div>
+              <p className="text-[12.5px] font-bold text-slate-800">Carry unused amount to next month</p>
+              <p className="text-[11.5px] text-slate-500 mt-0.5">Roll over any unspent amount to your next month's budget.</p>
+            </div>
+          </div>
+
+          <Field label="Alert me when spending reaches">
+            <select
+              className="input w-32"
+              value={form.alertThreshold}
+              onChange={(e) => setForm({ ...form, alertThreshold: Number(e.target.value) })}
+            >
+              {THRESHOLDS.map((t) => <option key={t} value={t}>{t}%</option>)}
+            </select>
           </Field>
+
+          {Number(form.budget) > 0 && (
+            <div className="rounded-xl bg-brand-50/70 border border-brand-100 px-3.5 py-2.5 flex items-center gap-2.5">
+              <span className="text-[13px]">📅</span>
+              <p className="text-[12.5px] text-slate-700">
+                <b>{money(Number(form.budget))} per {form.period === 'Monthly' ? 'month' : form.period === 'Weekly' ? 'week' : 'year'}</b>
+                <span className="text-slate-400"> — This is your {form.period?.toLowerCase()} limit for this category.</span>
+              </p>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

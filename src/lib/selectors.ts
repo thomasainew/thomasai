@@ -205,16 +205,32 @@ const BUDGET_KEYWORDS: Record<string, string[]> = {
   'loan payment': ['loan', 'emi', 'debt'],
 }
 
-/** The budget a transaction category belongs to, or undefined when none fits. */
-export function matchBudget(category: string, budgets: BudgetCategory[]) {
+/**
+ * The budget a transaction category (and optionally sub-category) belongs
+ * to. A budget explicitly wired to a category via "Category Matching" wins
+ * outright and never falls through to name/keyword guessing — that's the
+ * whole point of wiring it. Wiring with autoMatch off deliberately tracks
+ * nothing, so its spend stays at zero until switched back on.
+ */
+export function matchBudget(category: string, budgets: BudgetCategory[], subcategory?: string) {
   const cat = category.trim().toLowerCase()
+  const sub = (subcategory ?? '').trim().toLowerCase()
+
+  const wired = budgets.find((b) => {
+    if (!b.categoryName || b.autoMatch === false) return false
+    if (b.categoryName.trim().toLowerCase() !== cat) return false
+    return !b.subcategoryName || b.subcategoryName.trim().toLowerCase() === sub
+  })
+  if (wired) return wired
+
+  const unwired = budgets.filter((b) => !b.categoryName)
   const keys = BUDGET_KEYWORDS[cat] ?? cat.split(/[^a-z]+/).filter((w) => w.length > 2)
 
   // An exact name match always wins over keyword matching.
-  const exact = budgets.find((b) => b.name.trim().toLowerCase() === cat)
+  const exact = unwired.find((b) => b.name.trim().toLowerCase() === cat)
   if (exact) return exact
 
-  return budgets.find((b) => {
+  return unwired.find((b) => {
     const name = b.name.toLowerCase()
     return keys.some((k) => name.includes(k))
   })
@@ -225,7 +241,7 @@ export function budgetSpend(txns: Transaction[], budgets: BudgetCategory[], mont
   const out = new Map<string, number>(budgets.map((b) => [b.id, 0]))
   for (const t of inMonth(txns, month)) {
     if (t.type !== 'expense') continue
-    const b = matchBudget(t.category, budgets)
+    const b = matchBudget(t.category, budgets, t.subcategory)
     if (b) out.set(b.id, (out.get(b.id) ?? 0) + toBase(t.amount, t.currency))
   }
   return out
@@ -240,7 +256,7 @@ export function budgetsWithSpend(txns: Transaction[], budgets: BudgetCategory[],
 /** Expenses in the month that no budget category covers. */
 export function unbudgetedSpend(txns: Transaction[], budgets: BudgetCategory[], month = CURRENT_MONTH) {
   return inMonth(txns, month)
-    .filter((t) => t.type === 'expense' && !matchBudget(t.category, budgets))
+    .filter((t) => t.type === 'expense' && !matchBudget(t.category, budgets, t.subcategory))
     .reduce((a, t) => a + toBase(t.amount, t.currency), 0)
 }
 
