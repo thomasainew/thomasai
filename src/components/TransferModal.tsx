@@ -18,10 +18,13 @@ export function TransferModal({
   onClose,
   /** Preselect a loan repayment, e.g. from the Loans page "Record Payment" action. */
   presetLoanId,
+  /** Preselect the source account, e.g. from an account card's "Transfer" button. */
+  presetFromId,
 }: {
   open: boolean
   onClose: () => void
   presetLoanId?: string | null
+  presetFromId?: string | null
 }) {
   const { accounts, loans, addTransfer } = useStore()
   const assetAccounts = accounts.filter((a) => a.type === 'bank' || a.type === 'cash')
@@ -36,7 +39,7 @@ export function TransferModal({
 
   useEffect(() => {
     if (!open) return
-    setFromId(assetAccounts[0]?.id ?? '')
+    setFromId(presetFromId ?? assetAccounts[0]?.id ?? '')
     setAmount('')
     setDate(TODAY)
     setNotes('')
@@ -50,7 +53,7 @@ export function TransferModal({
       setPurpose('Other')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, presetLoanId])
+  }, [open, presetLoanId, presetFromId])
 
   const from = accounts.find((a) => a.id === fromId)
   // Never let the destination equal the source, and a card can't pay a card.

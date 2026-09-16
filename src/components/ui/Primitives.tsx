@@ -150,8 +150,13 @@ export function Switch({ checked, onChange }: { checked: boolean; onChange: (v: 
     >
       <span
         className={cx(
-          'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
-          checked ? 'translate-x-5' : 'translate-x-0.5',
+          // left-0.5 pins the resting position explicitly — without it the
+          // browser falls back to a static-position guess for this
+          // absolutely positioned knob, which can land far enough right
+          // that translate-x-5 pushes it past the switch into whatever
+          // sits next to it.
+          'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
+          checked ? 'translate-x-5' : 'translate-x-0',
         )}
       />
     </button>

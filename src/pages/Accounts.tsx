@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeftRight, Banknote, CreditCard, Landmark, Plus, Trash2, Wallet, PieChart, Pencil } from 'lucide-react'
+import {
+  ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Banknote, BarChart3, CreditCard, LayoutGrid,
+  Landmark, List, MoreVertical, Plus, Receipt, Trash2, Wallet, PieChart, Pencil, X,
+} from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Badge, PageHeader, StatCard, statusTone } from '@/components/ui/Primitives'
 import { Donut, DonutLegend } from '@/components/charts/Charts'
@@ -8,7 +11,7 @@ import { Modal, Field } from '@/components/ui/Modal'
 import { TransferModal } from '@/components/TransferModal'
 import { accountLabel } from '@/lib/accounting'
 import { TODAY, fmtDate, money } from '@/lib/format'
-import { accountTotals, inMonth } from '@/lib/selectors'
+import { accountTotals, inMonth, totals as monthTotals } from '@/lib/selectors'
 import type { Account, AccountType, Currency } from '@/types'
 
 const TYPE_LABEL: Record<AccountType, string> = {
@@ -18,13 +21,27 @@ const TYPE_LABEL: Record<AccountType, string> = {
   loan: 'Loan Account',
 }
 
+/** Darken a hex colour by a fraction, for the card gradient's far end. */
+function shade(hex: string, amount: number) {
+  const n = parseInt(hex.slice(1), 16)
+  const clamp = (v: number) => Math.max(0, Math.min(255, v))
+  const r = clamp(((n >> 16) & 255) * (1 - amount))
+  const g = clamp(((n >> 8) & 255) * (1 - amount))
+  const b = clamp((n & 255) * (1 - amount))
+  return `rgb(${r | 0}, ${g | 0}, ${b | 0})`
+}
+
 export default function Accounts() {
   const { accounts, transactions, transfers, loans, addAccount, updateAccount, removeAccount, removeTransfer } = useStore()
   const [tab, setTab] = useState<'all' | AccountType>('all')
+  const [view, setView] = useState<'card' | 'list'>('card')
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Account | null>(null)
   const [editBalances, setEditBalances] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
+  const [transferFromId, setTransferFromId] = useState<string | null>(null)
+  const [txnFilterId, setTxnFilterId] = useState<string | null>(null)
+  const [cardMenu, setCardMenu] = useState<string | null>(null)
 
   const transferDest = (t: (typeof transfers)[number]) =>
     t.toKind === 'loan'
@@ -68,14 +85,24 @@ export default function Accounts() {
   const recent = useMemo(
     () =>
       [...inMonth(transactions)]
+        .filter((t) => !txnFilterId || t.accountId === txnFilterId)
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 6)
         .map((t) => {
           const acc = accounts.find((a) => a.id === t.accountId)
           return { ...t, accountName: acc ? accountLabel(acc) : '—' }
         }),
-    [transactions, accounts],
+    [transactions, accounts, txnFilterId],
   )
+
+  // Inflow/outflow across the accounts currently in view (respects the tab filter).
+  const activity = useMemo(() => {
+    const ids = new Set(list.map((a) => a.id))
+    const scoped = inMonth(transactions).filter((t) => ids.has(t.accountId))
+    const t = monthTotals(scoped)
+    return { inflow: t.income, outflow: t.expenses }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, tab, accounts])
 
   const tabs = [
     { key: 'all', label: `All Accounts (${accounts.length})` },
@@ -92,7 +119,7 @@ export default function Accounts() {
         subtitle="Manage all your bank accounts, wallets, cards and loans in one place."
         actions={
           <div className="flex gap-2">
-            <button className="btn-ghost" onClick={() => setTransferOpen(true)}>
+            <button className="btn-ghost" onClick={() => { setTransferFromId(null); setTransferOpen(true) }}>
               <ArrowLeftRight size={15} /> Transfer
             </button>
             <button
@@ -138,66 +165,198 @@ export default function Accounts() {
               </button>
             ))}
           </div>
-          <div className="overflow-x-auto scroll-thin">
-            <table className="w-full min-w-[720px]">
-              <thead className="bg-slate-50/70">
-                <tr>
-                  <th className="th">Account Name</th>
-                  <th className="th">Type</th>
-                  <th className="th">Account Details</th>
-                  <th className="th text-right">Balance</th>
-                  <th className="th">Currency</th>
-                  <th className="th">Status</th>
-                  <th className="th text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#f1f5f9]">
-                {list.map((a) => (
-                  <tr key={a.id} className="row-hover">
-                    <td className="td font-semibold text-slate-800">
-                      <div className="flex items-center gap-2.5">
-                        <span className="h-7 w-7 rounded-lg grid place-items-center text-white text-[11px] font-bold shrink-0" style={{ background: a.color }}>
-                          {a.name.charAt(0)}
-                        </span>
-                        {a.name}
-                      </div>
-                    </td>
-                    <td className="td text-slate-500">{TYPE_LABEL[a.type]}</td>
-                    <td className="td text-slate-500 font-mono text-[12px]">{a.details}</td>
-                    <td className="td text-right font-bold tabular-nums">
-                      {editBalances ? (
-                        <input
-                          type="number"
-                          value={a.balance}
-                          onChange={(e) => updateAccount(a.id, { balance: Number(e.target.value) || 0 })}
-                          className="w-28 h-8 rounded-lg border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 outline-none px-2 text-right font-bold tabular-nums"
-                        />
-                      ) : (
-                        a.balance.toLocaleString()
+
+          <div className="px-5 pt-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-[13px] font-bold text-slate-800">Your Accounts</p>
+              <p className="text-[11.5px] text-slate-500 mt-0.5">{list.length} active account{list.length === 1 ? '' : 's'}</p>
+            </div>
+            <div className="flex rounded-lg border border-[#e2e8f0] p-0.5">
+              <button
+                onClick={() => setView('card')}
+                className={`h-8 px-3 rounded-md text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${view === 'card' ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <LayoutGrid size={13} /> Card View
+              </button>
+              <button
+                onClick={() => setView('list')}
+                className={`h-8 px-3 rounded-md text-[12px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition ${view === 'list' ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                <List size={13} /> List View
+              </button>
+            </div>
+          </div>
+
+          {view === 'card' ? (
+            <div className="p-5 grid gap-4 sm:grid-cols-2">
+              {list.map((a) => (
+                <div
+                  key={a.id}
+                  className="relative rounded-2xl p-4 text-white overflow-hidden min-h-[168px] flex flex-col justify-between"
+                  style={{ background: `linear-gradient(135deg, ${a.color}, ${shade(a.color, 0.45)})` }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-extrabold truncate">{a.name}</p>
+                      <p className="text-[11px] text-white/70 truncate">
+                        {a.owner ? `${a.owner.toUpperCase()} · ` : ''}{TYPE_LABEL[a.type]}
+                      </p>
+                    </div>
+                    <span className="chip bg-white/20 text-white text-[10px] font-bold shrink-0">● {a.status}</span>
+                  </div>
+
+                  <div>
+                    <p className="text-[11px] text-white/70 font-mono tracking-wide mb-1">
+                      {a.details && a.details !== '—' ? `•••• •••• ${a.details.replace(/\D/g, '').slice(-4)}` : a.details}
+                    </p>
+                    <p className="text-[10px] text-white/60">
+                      {a.type === 'card' ? 'Outstanding Balance' : 'Available Balance'}
+                    </p>
+                    <p className="text-[22px] font-extrabold tracking-tight">{money(a.balance, a.currency)}</p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <button
+                      onClick={() => setTxnFilterId(txnFilterId === a.id ? null : a.id)}
+                      className="flex-1 h-8 rounded-lg bg-white/15 hover:bg-white/25 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
+                    >
+                      <Receipt size={12} /> Transactions
+                    </button>
+                    <button
+                      onClick={() => { setTransferFromId(a.id); setTransferOpen(true) }}
+                      className="flex-1 h-8 rounded-lg bg-white/15 hover:bg-white/25 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
+                    >
+                      <ArrowLeftRight size={12} /> Transfer
+                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={() => setCardMenu(cardMenu === a.id ? null : a.id)}
+                        className="h-8 w-8 grid place-items-center rounded-lg bg-white/15 hover:bg-white/25 cursor-pointer transition"
+                      >
+                        <MoreVertical size={13} />
+                      </button>
+                      {cardMenu === a.id && (
+                        <div className="absolute right-0 bottom-9 w-32 card p-1.5 z-20 animate-pop text-slate-700">
+                          <button
+                            onClick={() => { setEditing(a); setModal(true); setCardMenu(null) }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold hover:bg-slate-50 cursor-pointer inline-flex items-center gap-2"
+                          >
+                            <Pencil size={12} /> Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setCardMenu(null)
+                              if (window.confirm(`Remove ${a.name}? This does not delete its past transactions.`)) removeAccount(a.id)
+                            }}
+                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 cursor-pointer inline-flex items-center gap-2"
+                          >
+                            <Trash2 size={12} /> Delete
+                          </button>
+                        </div>
                       )}
-                    </td>
-                    <td className="td text-slate-500">{a.currency}</td>
-                    <td className="td"><Badge tone={statusTone(a.status)}>{a.status}</Badge></td>
-                    <td className="td">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => { setEditing(a); setModal(true) }}
-                          className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-brand-50 hover:text-brand-600 cursor-pointer"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={() => removeAccount(a.id)}
-                          className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={() => { setEditing(null); setModal(true) }}
+                className="rounded-2xl border-2 border-dashed border-[#e2e8f0] min-h-[168px] flex flex-col items-center justify-center gap-2 text-slate-400 hover:text-brand-600 hover:border-brand-300 transition cursor-pointer"
+              >
+                <span className="h-10 w-10 rounded-full bg-slate-50 grid place-items-center"><Plus size={18} /></span>
+                <span className="text-[12.5px] font-semibold">Add another account</span>
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto scroll-thin">
+              <table className="w-full min-w-[720px]">
+                <thead className="bg-slate-50/70">
+                  <tr>
+                    <th className="th">Account Name</th>
+                    <th className="th">Type</th>
+                    <th className="th">Account Details</th>
+                    <th className="th text-right">Balance</th>
+                    <th className="th">Currency</th>
+                    <th className="th">Status</th>
+                    <th className="th text-right">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-[#f1f5f9]">
+                  {list.map((a) => (
+                    <tr key={a.id} className="row-hover">
+                      <td className="td font-semibold text-slate-800">
+                        <div className="flex items-center gap-2.5">
+                          <span className="h-7 w-7 rounded-lg grid place-items-center text-white text-[11px] font-bold shrink-0" style={{ background: a.color }}>
+                            {a.name.charAt(0)}
+                          </span>
+                          {a.name}
+                        </div>
+                      </td>
+                      <td className="td text-slate-500">{TYPE_LABEL[a.type]}</td>
+                      <td className="td text-slate-500 font-mono text-[12px]">{a.details}</td>
+                      <td className="td text-right font-bold tabular-nums">
+                        {editBalances ? (
+                          <input
+                            type="number"
+                            value={a.balance}
+                            onChange={(e) => updateAccount(a.id, { balance: Number(e.target.value) || 0 })}
+                            className="w-28 h-8 rounded-lg border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 outline-none px-2 text-right font-bold tabular-nums"
+                          />
+                        ) : (
+                          a.balance.toLocaleString()
+                        )}
+                      </td>
+                      <td className="td text-slate-500">{a.currency}</td>
+                      <td className="td"><Badge tone={statusTone(a.status)}>{a.status}</Badge></td>
+                      <td className="td">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => { setEditing(a); setModal(true) }}
+                            className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-brand-50 hover:text-brand-600 cursor-pointer"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => removeAccount(a.id)}
+                            className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="px-5 pb-5 pt-3 border-t border-[#f1f5f9]">
+            <p className="text-[13px] font-bold text-slate-800">Account Activity</p>
+            <p className="text-[11.5px] text-slate-500 mt-0.5 mb-3">Your overall account inflow and outflow for the selected period.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl bg-emerald-50/60 p-3.5 flex items-center gap-3">
+                <ArrowUpCircle size={18} className="text-emerald-600 shrink-0" />
+                <div>
+                  <p className="text-[10.5px] text-slate-500">Total Inflow</p>
+                  <p className="text-[15px] font-bold text-slate-800 tabular-nums">{money(activity.inflow)}</p>
+                </div>
+              </div>
+              <div className="rounded-xl bg-rose-50/60 p-3.5 flex items-center gap-3">
+                <ArrowDownCircle size={18} className="text-rose-600 shrink-0" />
+                <div>
+                  <p className="text-[10.5px] text-slate-500">Total Outflow</p>
+                  <p className="text-[15px] font-bold text-slate-800 tabular-nums">{money(activity.outflow)}</p>
+                </div>
+              </div>
+              <div className="rounded-xl bg-blue-50/60 p-3.5 flex items-center gap-3">
+                <BarChart3 size={18} className="text-blue-600 shrink-0" />
+                <div>
+                  <p className="text-[10.5px] font-semibold text-slate-700">Track your account activity</p>
+                  <p className="text-[10px] text-slate-500">Based on this month's transactions.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -213,8 +372,18 @@ export default function Accounts() {
           </Card>
 
           <Card>
-            <CardHead title="Recent Transactions" />
+            <CardHead
+              title={txnFilterId ? `Transactions — ${accounts.find((a) => a.id === txnFilterId)?.name ?? ''}` : 'Recent Transactions'}
+              right={
+                txnFilterId && (
+                  <button onClick={() => setTxnFilterId(null)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <X size={14} />
+                  </button>
+                )
+              }
+            />
             <div className="px-5 pb-5 space-y-3">
+              {recent.length === 0 && <p className="py-6 text-center text-[12px] text-slate-400">No transactions this month.</p>}
               {recent.map((t) => (
                 <div key={t.id} className="flex items-center gap-3 text-[12.5px]">
                   <span className="w-14 text-slate-400 shrink-0">{fmtDate(t.date).slice(0, 6)}</span>
@@ -308,7 +477,11 @@ export default function Accounts() {
       </div>
 
       <AccountModal open={modal} onClose={() => setModal(false)} editing={editing} onSave={editing ? (patch) => updateAccount(editing.id, patch) : addAccount} />
-      <TransferModal open={transferOpen} onClose={() => setTransferOpen(false)} />
+      <TransferModal
+        open={transferOpen}
+        onClose={() => { setTransferOpen(false); setTransferFromId(null) }}
+        presetFromId={transferFromId}
+      />
     </div>
   )
 }
@@ -326,7 +499,7 @@ function AccountModal({
 }) {
   const [form, setForm] = useState({
     name: '', type: 'bank' as AccountType, details: '', balance: '', currency: 'AED' as Currency, color: '#3b82f6',
-    statementDay: '', dueDay: '',
+    statementDay: '', dueDay: '', owner: '',
   })
 
   useEffect(() => {
@@ -338,8 +511,9 @@ function AccountModal({
               currency: editing.currency, color: editing.color,
               statementDay: editing.statementDay ? String(editing.statementDay) : '',
               dueDay: editing.dueDay ? String(editing.dueDay) : '',
+              owner: editing.owner ?? '',
             }
-          : { name: '', type: 'bank', details: '', balance: '', currency: 'AED', color: '#3b82f6', statementDay: '', dueDay: '' },
+          : { name: '', type: 'bank', details: '', balance: '', currency: 'AED', color: '#3b82f6', statementDay: '', dueDay: '', owner: '' },
       )
   }, [open, editing])
 
@@ -356,6 +530,7 @@ function AccountModal({
       // Only cards have a billing cycle; clear it if the type changed away.
       statementDay: form.type === 'card' && form.statementDay ? Number(form.statementDay) : undefined,
       dueDay: form.type === 'card' && form.dueDay ? Number(form.dueDay) : undefined,
+      owner: form.owner.trim() || undefined,
     })
     onClose()
   }
@@ -387,6 +562,9 @@ function AccountModal({
         </Field>
         <Field label="Account Details">
           <input className="input" value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} placeholder="**** 1234" />
+        </Field>
+        <Field label="Owner (optional)">
+          <input className="input" value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder="e.g. Thomas, Wife" />
         </Field>
         <Field label="Balance">
           <input className="input" type="number" value={form.balance} onChange={(e) => setForm({ ...form, balance: e.target.value })} placeholder="0" />

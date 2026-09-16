@@ -38,13 +38,14 @@ export const MAPPERS: {
     to: (a: Account) => ({
       id: a.id, name: a.name, type: a.type, details: a.details, balance: a.balance,
       currency: a.currency, status: a.status, color: a.color, bank: a.bank ?? null,
-      statement_day: a.statementDay ?? null, due_day: a.dueDay ?? null,
+      statement_day: a.statementDay ?? null, due_day: a.dueDay ?? null, owner: a.owner ?? null,
     }),
     from: (r): Account => ({
       id: r.id, name: r.name, type: r.type, details: r.details, balance: num(r.balance),
       currency: r.currency, status: r.status, color: r.color, bank: r.bank ?? undefined,
       statementDay: r.statement_day == null ? undefined : num(r.statement_day),
       dueDay: r.due_day == null ? undefined : num(r.due_day),
+      owner: r.owner ?? undefined,
     }),
   },
 
