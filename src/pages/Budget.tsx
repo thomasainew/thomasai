@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { CopyPlus, Gauge, History, PiggyBank, Plus, Target, Trash2, Wallet } from 'lucide-react'
+import { CopyPlus, Gauge, History, Pencil, PiggyBank, Plus, Target, Trash2, Wallet } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useStore } from '@/store/useStore'
@@ -46,6 +46,7 @@ export default function Budget() {
     addBudget, updateBudget, removeBudget, updateSettings, addSubcategory,
   } = useStore()
   const [modal, setModal] = useState(false)
+  const [editing, setEditing] = useState<BudgetCategory | null>(null)
   const [form, setForm] = useState(blankForm())
   const [newSub, setNewSub] = useState<string | null>(null)
 
@@ -78,13 +79,36 @@ export default function Budget() {
   const donut = budgets.map((b) => ({ name: b.name, value: b.spent }))
   const colors = budgets.map((b) => b.color)
 
+  const openAdd = () => {
+    setEditing(null)
+    setForm(blankForm())
+    setNewSub(null)
+    setModal(true)
+  }
+
+  const openEdit = (b: BudgetCategory) => {
+    setEditing(b)
+    setForm({
+      name: b.name,
+      icon: b.icon || ICON_OPTIONS[0].icon,
+      budget: String(b.budget),
+      color: b.color,
+      period: b.period ?? 'Monthly',
+      categoryName: b.categoryName ?? '',
+      subcategoryName: b.subcategoryName ?? '',
+      autoMatch: b.autoMatch ?? true,
+      rollover: b.rollover ?? false,
+      alertThreshold: b.alertThreshold ?? 80,
+    })
+    setNewSub(null)
+    setModal(true)
+  }
+
   const save = () => {
     if (!form.name.trim() || !Number(form.budget)) return
-    addBudget({
+    const payload = {
       name: form.name.trim(),
       icon: form.icon || '📦',
-      budget: Number(form.budget),
-      spent: 0,
       color: form.color,
       period: form.period,
       categoryName: form.categoryName || undefined,
@@ -92,8 +116,12 @@ export default function Budget() {
       autoMatch: form.autoMatch,
       rollover: form.rollover,
       alertThreshold: form.alertThreshold,
-    })
+      budget: Number(form.budget),
+    }
+    if (editing) updateBudget(editing.id, payload)
+    else addBudget({ ...payload, spent: 0 })
     setForm(blankForm())
+    setEditing(null)
     setNewSub(null)
     setModal(false)
   }
@@ -112,7 +140,7 @@ export default function Budget() {
         title="Budget"
         subtitle="Plan your spending, stay in control and reach your goals."
         actions={
-          <button className="btn-primary" onClick={() => setModal(true)}>
+          <button className="btn-primary" onClick={() => openAdd()}>
             <Plus size={15} /> Create Budget
           </button>
         }
@@ -267,9 +295,14 @@ export default function Budget() {
                       </div>
                     </td>
                     <td className="td text-right">
-                      <button onClick={() => removeBudget(b.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer ml-auto">
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openEdit(b)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-brand-50 hover:text-brand-600 cursor-pointer">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => removeBudget(b.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -278,7 +311,7 @@ export default function Budget() {
             {budgets.length === 0 && <Empty text="No budget categories yet." />}
           </div>
           <div className="px-5 py-4 border-t border-[#f1f5f9] flex flex-wrap items-center gap-3">
-            <button className="btn-soft" onClick={() => setModal(true)}><Plus size={14} /> Add Category</button>
+            <button className="btn-soft" onClick={() => openAdd()}><Plus size={14} /> Add Category</button>
             {unbudgeted > 0 && (
               <p className="text-[11.5px] text-slate-500">
                 <b className="text-slate-700">{money(unbudgeted)}</b> spent this month in categories no budget covers.
@@ -311,7 +344,7 @@ export default function Budget() {
           <Card>
             <CardHead title="Quick Actions" />
             <div className="px-5 pb-5 grid grid-cols-1 gap-2.5">
-              <button className="btn-ghost justify-start h-11" onClick={() => setModal(true)}><Plus size={15} /> Add Category</button>
+              <button className="btn-ghost justify-start h-11" onClick={() => openAdd()}><Plus size={15} /> Add Category</button>
               <button
                 className="btn-ghost justify-start h-11"
                 onClick={() => {
@@ -331,14 +364,16 @@ export default function Budget() {
 
       <Modal
         open={modal}
-        onClose={() => { setModal(false); setNewSub(null) }}
-        title="Add Budget"
-        subtitle="Set a spending limit and organize transactions automatically."
+        onClose={() => { setModal(false); setEditing(null); setNewSub(null) }}
+        title={editing ? 'Edit Budget' : 'Add Budget'}
+        subtitle={editing ? "Update this category's limit and matching." : 'Set a spending limit and organize transactions automatically.'}
         width="max-w-2xl"
         footer={
           <>
-            <button className="btn-ghost" onClick={() => { setModal(false); setNewSub(null) }}>Cancel</button>
-            <button className="btn-primary" disabled={!form.name.trim() || !Number(form.budget)} onClick={save}>Create Budget</button>
+            <button className="btn-ghost" onClick={() => { setModal(false); setEditing(null); setNewSub(null) }}>Cancel</button>
+            <button className="btn-primary" disabled={!form.name.trim() || !Number(form.budget)} onClick={save}>
+              {editing ? 'Save Changes' : 'Create Budget'}
+            </button>
           </>
         }
       >
