@@ -56,6 +56,8 @@ export interface BudgetCategory {
   name: string
   icon: string
   budget: number
+  /** Currency the limit above is denominated in. `spent` is always base-currency. */
+  currency?: Currency
   spent: number
   color: string
   /** How often `budget` applies. Spend tracking is always monthly regardless. */

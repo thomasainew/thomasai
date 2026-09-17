@@ -99,7 +99,7 @@ export function buildSnapshot(
       // exactly would report the "Groceries" category as unbudgeted when the
       // budget is called "Grocery", and the analysis would repeat that error.
       const b = matchBudget(c.name, withSpend)
-      return { name: c.name, spent: round(c.value), budget: b ? round(b.budget) : undefined }
+      return { name: c.name, spent: round(c.value), budget: b ? round(b.budgetBase) : undefined }
     }),
     topStores: byStore(transactions, month)
       .filter((s) => s.name !== 'Unrecorded')
@@ -149,18 +149,18 @@ export function hardWarnings(
   const out: { title: string; detail: string }[] = []
 
   for (const b of budgetsWithSpend(transactions, budgets, month)) {
-    if (b.budget <= 0) continue
-    if (b.spent > b.budget) {
+    if (b.budgetBase <= 0) continue
+    if (b.spent > b.budgetBase) {
       out.push({
         title: `${b.name} is over budget`,
-        detail: `Spent ${b.spent.toLocaleString()} of ${b.budget.toLocaleString()}.`,
+        detail: `Spent ${b.spent.toLocaleString()} of ${b.budgetBase.toLocaleString()}.`,
       })
     } else {
       const threshold = b.alertThreshold ?? 80
-      if ((b.spent / b.budget) * 100 >= threshold) {
+      if ((b.spent / b.budgetBase) * 100 >= threshold) {
         out.push({
           title: `${b.name} is approaching its budget`,
-          detail: `Spent ${b.spent.toLocaleString()} of ${b.budget.toLocaleString()} (${Math.round((b.spent / b.budget) * 100)}%).`,
+          detail: `Spent ${b.spent.toLocaleString()} of ${b.budgetBase.toLocaleString()} (${Math.round((b.spent / b.budgetBase) * 100)}%).`,
         })
       }
     }
@@ -278,7 +278,7 @@ export function buildFactsPack(
     })),
     budgets: budgetsWithSpend(transactions, budgets, monthKey(today)).map((b) => ({
       name: b.name,
-      monthlyBudget: b.budget,
+      monthlyBudget: b.budgetBase,
       spentThisMonth: b.spent,
     })),
     accounts: accounts.map((a) => ({

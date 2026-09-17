@@ -6,10 +6,10 @@ import { useStore } from '@/store/useStore'
 import { Card, CardHead, PageHeader, Progress, StatCard, Empty, Switch } from '@/components/ui/Primitives'
 import { Donut, DonutLegend } from '@/components/charts/Charts'
 import { Modal, Field } from '@/components/ui/Modal'
-import { compact, money, pct } from '@/lib/format'
+import { compact, convert, money, pct } from '@/lib/format'
 import { budgetsWithSpend, categoriesOf, currentMonthLabel, subcategoriesOf, unbudgetedSpend } from '@/lib/selectors'
 import { suggestBudgets } from '@/lib/budgetSuggest'
-import type { BudgetCategory } from '@/types'
+import type { BudgetCategory, Currency } from '@/types'
 
 const ICON_OPTIONS = [
   { label: 'Wallet', icon: '👛' },
@@ -27,10 +27,11 @@ const ICON_OPTIONS = [
 const PERIODS: BudgetCategory['period'][] = ['Monthly', 'Weekly', 'Yearly']
 const THRESHOLDS = [50, 60, 70, 80, 90, 100]
 
-const blankForm = () => ({
+const blankForm = (currency: Currency = 'AED') => ({
   name: '',
   icon: ICON_OPTIONS[0].icon,
   budget: '',
+  currency,
   color: '#3b82f6',
   period: 'Monthly' as BudgetCategory['period'],
   categoryName: '',
@@ -47,7 +48,7 @@ export default function Budget() {
   } = useStore()
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<BudgetCategory | null>(null)
-  const [form, setForm] = useState(blankForm())
+  const [form, setForm] = useState(blankForm(settings.baseCurrency))
   const [newSub, setNewSub] = useState<string | null>(null)
 
   const expenseCategories = useMemo(() => categoriesOf(categories, 'expense'), [categories])
@@ -62,18 +63,25 @@ export default function Budget() {
   const openSuggestions = advice.suggestions.filter((s) => !dismissedAdvice.includes(s.name))
 
   const applySuggestion = (s: (typeof advice.suggestions)[number]) => {
-    if (s.id) updateBudget(s.id, { budget: s.suggested })
-    else addBudget({ name: s.name, icon: '📦', budget: s.suggested, spent: 0, color: '#3b82f6' })
+    // s.suggested is base-currency; a budget denominated in another currency
+    // needs it converted back before it means the same thing in that field.
+    if (s.id) {
+      const target = rawBudgets.find((b) => b.id === s.id)
+      const suggested = Math.round(convert(s.suggested, 'AED', target?.currency ?? 'AED'))
+      updateBudget(s.id, { budget: suggested })
+    } else {
+      addBudget({ name: s.name, icon: '📦', budget: s.suggested, currency: settings.baseCurrency, spent: 0, color: '#3b82f6' })
+    }
     setDismissedAdvice((d) => [...d, s.name])
   }
 
-  const totalBudget = budgets.reduce((a, b) => a + b.budget, 0)
+  const totalBudget = budgets.reduce((a, b) => a + b.budgetBase, 0)
   const totalSpent = budgets.reduce((a, b) => a + b.spent, 0)
   const remaining = totalBudget - totalSpent
   const onTrack = totalSpent <= totalBudget
 
   const chart = useMemo(
-    () => budgets.map((b) => ({ name: b.name.split(' ')[0], Budget: b.budget, Actual: b.spent })),
+    () => budgets.map((b) => ({ name: b.name.split(' ')[0], Budget: b.budgetBase, Actual: b.spent })),
     [budgets],
   )
   const donut = budgets.map((b) => ({ name: b.name, value: b.spent }))
@@ -81,7 +89,7 @@ export default function Budget() {
 
   const openAdd = () => {
     setEditing(null)
-    setForm(blankForm())
+    setForm(blankForm(settings.baseCurrency))
     setNewSub(null)
     setModal(true)
   }
@@ -92,6 +100,7 @@ export default function Budget() {
       name: b.name,
       icon: b.icon || ICON_OPTIONS[0].icon,
       budget: String(b.budget),
+      currency: b.currency ?? 'AED',
       color: b.color,
       period: b.period ?? 'Monthly',
       categoryName: b.categoryName ?? '',
@@ -117,10 +126,11 @@ export default function Budget() {
       rollover: form.rollover,
       alertThreshold: form.alertThreshold,
       budget: Number(form.budget),
+      currency: form.currency,
     }
     if (editing) updateBudget(editing.id, payload)
     else addBudget({ ...payload, spent: 0 })
-    setForm(blankForm())
+    setForm(blankForm(settings.baseCurrency))
     setEditing(null)
     setNewSub(null)
     setModal(false)
@@ -244,11 +254,11 @@ export default function Budget() {
                   <span className="text-[15px] w-5">{b.icon}</span>
                   <span className="flex-1 text-[12.5px] font-semibold text-slate-700 truncate">{b.name}</span>
                   <span className="text-[11px] text-slate-400 tabular-nums">
-                    {b.spent.toLocaleString()} / {b.budget.toLocaleString()}
+                    {b.spent.toLocaleString()} / {b.budgetBase.toLocaleString()}
                   </span>
-                  <span className="text-[11px] font-bold text-slate-500 w-9 text-right">{pct(b.spent, b.budget)}%</span>
+                  <span className="text-[11px] font-bold text-slate-500 w-9 text-right">{pct(b.spent, b.budgetBase)}%</span>
                 </div>
-                <Progress value={b.spent} max={b.budget} color={b.color} height={7} />
+                <Progress value={b.spent} max={b.budgetBase} color={b.color} height={7} />
               </div>
             ))}
           </div>
@@ -263,8 +273,8 @@ export default function Budget() {
               <thead className="bg-slate-50/70">
                 <tr>
                   <th className="th">Category</th>
-                  <th className="th text-right">Budget (AED)</th>
-                  <th className="th text-right">Spent (AED)</th>
+                  <th className="th text-right">Budget</th>
+                  <th className="th text-right">Spent</th>
                   <th className="th text-right">Remaining</th>
                   <th className="th w-56">Progress</th>
                   <th className="th text-right">Action</th>
@@ -275,23 +285,26 @@ export default function Budget() {
                   <tr key={b.id} className="row-hover">
                     <td className="td font-semibold text-slate-800"><span className="mr-2">{b.icon}</span>{b.name}</td>
                     <td className="td text-right">
-                      <input
-                        type="number"
-                        value={b.budget}
-                        onChange={(e) => updateBudget(b.id, { budget: Number(e.target.value) || 0 })}
-                        className="w-24 h-8 rounded-lg border border-transparent hover:border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 outline-none px-2 text-right font-bold tabular-nums bg-transparent"
-                      />
+                      <div className="flex items-center justify-end gap-1.5">
+                        <span className="text-[10px] font-semibold text-slate-400">{b.currency ?? 'AED'}</span>
+                        <input
+                          type="number"
+                          value={b.budget}
+                          onChange={(e) => updateBudget(b.id, { budget: Number(e.target.value) || 0 })}
+                          className="w-20 h-8 rounded-lg border border-transparent hover:border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 outline-none px-2 text-right font-bold tabular-nums bg-transparent"
+                        />
+                      </div>
                     </td>
                     <td className="td text-right font-semibold tabular-nums text-slate-600">
                       {b.spent.toLocaleString()}
                     </td>
-                    <td className={`td text-right font-bold tabular-nums ${b.budget - b.spent < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                      {(b.budget - b.spent).toLocaleString()}
+                    <td className={`td text-right font-bold tabular-nums ${b.budgetBase - b.spent < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                      {(b.budgetBase - b.spent).toLocaleString()}
                     </td>
                     <td className="td">
                       <div className="flex items-center gap-2">
-                        <Progress value={b.spent} max={b.budget} color={b.color} height={7} />
-                        <span className="text-[11px] font-bold text-slate-400 w-9 text-right">{pct(b.spent, b.budget)}%</span>
+                        <Progress value={b.spent} max={b.budgetBase} color={b.color} height={7} />
+                        <span className="text-[11px] font-bold text-slate-400 w-9 text-right">{pct(b.spent, b.budgetBase)}%</span>
                       </div>
                     </td>
                     <td className="td text-right">
@@ -324,7 +337,7 @@ export default function Budget() {
           <Card>
             <CardHead title="Monthly Budget" sub="Changes save as you type" />
             <div className="px-5 pb-5 space-y-3">
-              <Field label="Total Budget (AED)">
+              <Field label={`Total Budget (${settings.baseCurrency})`}>
                 <input
                   className="input"
                   type="number"
@@ -350,8 +363,10 @@ export default function Budget() {
                 onClick={() => {
                   const total = Number(settings.monthlyBudget) || 0
                   if (!total || !budgets.length) return
-                  const share = Math.round(total / budgets.length)
-                  budgets.forEach((b) => updateBudget(b.id, { budget: share }))
+                  const share = total / budgets.length
+                  budgets.forEach((b) =>
+                    updateBudget(b.id, { budget: Math.round(convert(share, settings.baseCurrency, b.currency ?? 'AED')) }),
+                  )
                 }}
               >
                 <CopyPlus size={15} /> Split Monthly Budget Evenly
@@ -386,7 +401,15 @@ export default function Budget() {
               </Field>
               <Field label="Monthly Budget *">
                 <div className="flex">
-                  <span className="input w-14 rounded-r-none border-r-0 flex items-center justify-center bg-slate-50 text-slate-500 font-semibold px-0">AED</span>
+                  <select
+                    className="input w-20 rounded-r-none border-r-0 px-1.5 text-slate-500 font-semibold"
+                    value={form.currency}
+                    onChange={(e) => setForm({ ...form, currency: e.target.value as Currency })}
+                  >
+                    <option>AED</option>
+                    <option>INR</option>
+                    <option>USD</option>
+                  </select>
                   <input
                     className="input rounded-l-none"
                     type="number"
@@ -510,7 +533,7 @@ export default function Budget() {
             <div className="rounded-xl bg-brand-50/70 border border-brand-100 px-3.5 py-2.5 flex items-center gap-2.5">
               <span className="text-[13px]">📅</span>
               <p className="text-[12.5px] text-slate-700">
-                <b>{money(Number(form.budget))} per {form.period === 'Monthly' ? 'month' : form.period === 'Weekly' ? 'week' : 'year'}</b>
+                <b>{money(Number(form.budget), form.currency)} per {form.period === 'Monthly' ? 'month' : form.period === 'Weekly' ? 'week' : 'year'}</b>
                 <span className="text-slate-400"> — This is your {form.period?.toLowerCase()} limit for this category.</span>
               </p>
             </div>

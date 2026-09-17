@@ -212,7 +212,7 @@ const BUDGET_KEYWORDS: Record<string, string[]> = {
  * whole point of wiring it. Wiring with autoMatch off deliberately tracks
  * nothing, so its spend stays at zero until switched back on.
  */
-export function matchBudget(category: string, budgets: BudgetCategory[], subcategory?: string) {
+export function matchBudget<T extends BudgetCategory>(category: string, budgets: T[], subcategory?: string) {
   const cat = category.trim().toLowerCase()
   const sub = (subcategory ?? '').trim().toLowerCase()
 
@@ -247,10 +247,24 @@ export function budgetSpend(txns: Transaction[], budgets: BudgetCategory[], mont
   return out
 }
 
-/** Budgets with `spent` replaced by the live figure derived from transactions. */
+/** A budget's limit converted to base currency, for comparing against `spent`. */
+export function budgetLimitBase(b: BudgetCategory) {
+  return toBase(b.budget, b.currency ?? 'AED')
+}
+
+/**
+ * Budgets with `spent` replaced by the live figure derived from transactions,
+ * plus `budgetBase` — the limit in base currency, since a budget set in INR
+ * still has to compare against spend that is always tallied in base currency.
+ * `budget` and `currency` are left as entered, for displaying the limit back.
+ */
 export function budgetsWithSpend(txns: Transaction[], budgets: BudgetCategory[], month = CURRENT_MONTH) {
   const spend = budgetSpend(txns, budgets, month)
-  return budgets.map((b) => ({ ...b, spent: Math.round(spend.get(b.id) ?? 0) }))
+  return budgets.map((b) => ({
+    ...b,
+    spent: Math.round(spend.get(b.id) ?? 0),
+    budgetBase: Math.round(budgetLimitBase(b)),
+  }))
 }
 
 /** Expenses in the month that no budget category covers. */

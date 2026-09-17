@@ -90,12 +90,12 @@ export const MAPPERS: {
 
   budgets: {
     to: (b: BudgetCategory) => ({
-      id: b.id, name: b.name, icon: b.icon, budget: b.budget, spent: b.spent, color: b.color,
+      id: b.id, name: b.name, icon: b.icon, budget: b.budget, currency: b.currency ?? 'AED', spent: b.spent, color: b.color,
       period: b.period ?? 'Monthly', category_name: b.categoryName ?? null, subcategory_name: b.subcategoryName ?? null,
       auto_match: b.autoMatch ?? true, rollover: b.rollover ?? false, alert_threshold: b.alertThreshold ?? 80,
     }),
     from: (r): BudgetCategory => ({
-      id: r.id, name: r.name, icon: r.icon, budget: num(r.budget), spent: num(r.spent), color: r.color,
+      id: r.id, name: r.name, icon: r.icon, budget: num(r.budget), currency: r.currency ?? 'AED', spent: num(r.spent), color: r.color,
       period: r.period ?? 'Monthly', categoryName: r.category_name ?? undefined, subcategoryName: r.subcategory_name ?? undefined,
       autoMatch: r.auto_match ?? true, rollover: Boolean(r.rollover), alertThreshold: r.alert_threshold == null ? 80 : num(r.alert_threshold),
     }),

@@ -1,6 +1,6 @@
 import type { BudgetCategory, Transaction } from '@/types'
 import { addMonths } from '@/lib/format'
-import { CURRENT_MONTH, budgetSpend, byCategory, matchBudget } from '@/lib/selectors'
+import { CURRENT_MONTH, budgetLimitBase, budgetSpend, byCategory, matchBudget } from '@/lib/selectors'
 
 /**
  * Budget suggestions from actual spending history.
@@ -83,18 +83,21 @@ export function suggestBudgets(
     const highest = Math.max(...active)
     // A little headroom above the typical month, without chasing the worst one.
     const suggested = tidy(mid * 1.1)
-    if (!suggested || suggested === b.budget) continue
+    // Both sides compared in base currency — a budget set in INR still has a
+    // meaningful "too tight" comparison against base-currency spend history.
+    const currentBase = Math.round(budgetLimitBase(b))
+    if (!suggested || suggested === currentBase) continue
 
     suggestions.push({
       id: b.id,
       name: b.name,
-      current: b.budget,
+      current: currentBase,
       suggested,
       history: all,
       monthsObserved: active.length,
       median: Math.round(mid),
       highest,
-      delta: suggested - b.budget,
+      delta: suggested - currentBase,
     })
   }
 
