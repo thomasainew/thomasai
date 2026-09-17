@@ -5,6 +5,7 @@ import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
 import { readFileAsDataUrl } from '@/lib/gemini'
+import { resizeImage } from '@/lib/image'
 import { fmtDate, money } from '@/lib/format'
 import { byPerson, inMonth } from '@/lib/selectors'
 import type { Person } from '@/types'
@@ -14,25 +15,6 @@ function spendTier(value: number, maxSpend: number): { label: string; tone: stri
   if (value <= 0) return { label: 'LOW SPEND', tone: 'bg-emerald-50 text-emerald-700' }
   if (maxSpend > 0 && value >= maxSpend * 0.5) return { label: 'HIGH SPEND', tone: 'bg-rose-50 text-rose-700' }
   return { label: 'MEDIUM SPEND', tone: 'bg-amber-50 text-amber-700' }
-}
-
-/** Downscale to a small square JPEG so an avatar photo never bloats storage. */
-function resizeImage(dataUrl: string, max = 160): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const scale = Math.min(1, max / Math.max(img.width, img.height))
-      canvas.width = Math.round(img.width * scale)
-      canvas.height = Math.round(img.height * scale)
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return reject(new Error('Could not process that image.'))
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      resolve(canvas.toDataURL('image/jpeg', 0.85))
-    }
-    img.onerror = () => reject(new Error('Could not read that image.'))
-    img.src = dataUrl
-  })
 }
 
 const blankForm = () => ({ name: '', relation: '', phone: '', color: '#3b82f6', photo: '' })

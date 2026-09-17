@@ -12,6 +12,7 @@ export interface RemoteData {
   transactions: any[]
   transfers: any[]
   advisorMessages: any[]
+  advisorPersonas: any[]
   budgets: any[]
   loans: any[]
   people: any[]

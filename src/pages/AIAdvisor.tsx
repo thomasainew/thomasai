@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
-  AlertCircle, Briefcase, Gauge, Heart, HelpCircle, Lightbulb, Loader2, Paperclip,
+  AlertCircle, Briefcase, Gauge, GraduationCap, Heart, HelpCircle, Lightbulb, Loader2, Paperclip,
   Send, Sparkles, TrendingUp, Wand2,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
@@ -9,7 +10,7 @@ import { askAdvisors, hasGemini, type AdvisorTurn } from '@/lib/gemini'
 import { buildSnapshot, hasEnoughData } from '@/lib/insights'
 import type { AdvisorSpeaker } from '@/types'
 
-const PERSONAS: Record<'achachan' | 'chachan', { name: string; tagline: string; emoji: string; color: string }> = {
+const DEFAULT_META: Record<'achachan' | 'chachan', { name: string; tagline: string; emoji: string; color: string }> = {
   achachan: { name: 'അച്ചച്ചൻ', tagline: 'ജീവിതം, ഭാവി, അനുഭവങ്ങൾ', emoji: '👴', color: '#3b82f6' },
   chachan: { name: 'ചാച്ചൻ', tagline: 'ലോൺ, ഫിനാൻസ്, പ്ലാനിംഗ്', emoji: '👨‍💼', color: '#10b981' },
 }
@@ -28,16 +29,10 @@ const EXAMPLE_QUESTIONS = [
   'ഇപ്പോൾ ഇൻവെസ്റ്റ് ചെയ്യാൻ നല്ല options ഉണ്ടോ?',
 ]
 
-function speakerMeta(from: AdvisorSpeaker, userName: string) {
-  if (from === 'achachan') return { name: PERSONAS.achachan.name, emoji: PERSONAS.achachan.emoji, color: PERSONAS.achachan.color }
-  if (from === 'chachan') return { name: PERSONAS.chachan.name, emoji: PERSONAS.chachan.emoji, color: PERSONAS.chachan.color }
-  return { name: userName, emoji: userName.charAt(0).toUpperCase(), color: '#64748b' }
-}
-
 export default function AIAdvisor() {
   const {
     settings, transactions, accounts, budgets, bills, loans, goals,
-    advisorMessages, addAdvisorMessage,
+    advisorMessages, addAdvisorMessage, advisorPersonas,
   } = useStore()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -47,6 +42,21 @@ export default function AIAdvisor() {
   const seeded = useRef(false)
   const scroller = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  /** Custom name/photo from Train Advisors, layered over the base character. */
+  const personaMeta = (id: 'achachan' | 'chachan') => {
+    const custom = advisorPersonas.find((p) => p.id === id)
+    const base = DEFAULT_META[id]
+    return { name: custom?.name || base.name, photo: custom?.photo, emoji: base.emoji, color: base.color, tagline: base.tagline }
+  }
+
+  const speakerMeta = (from: AdvisorSpeaker) => {
+    if (from === 'achachan' || from === 'chachan') {
+      const m = personaMeta(from)
+      return { name: m.name, photo: m.photo, emoji: m.emoji, color: m.color }
+    }
+    return { name: settings.userName, photo: undefined, emoji: settings.userName.charAt(0).toUpperCase(), color: '#64748b' }
+  }
 
   const snapshot = useMemo(
     () => buildSnapshot(transactions, accounts, budgets, bills, loans, goals, settings),
@@ -91,7 +101,12 @@ export default function AIAdvisor() {
         useStore.getState().transactions, useStore.getState().accounts, useStore.getState().budgets,
         useStore.getState().bills, useStore.getState().loans, useStore.getState().goals, useStore.getState().settings,
       )
-      const reply = await askAdvisors(msg, fresh, history, abort.current.signal)
+      const persona = useStore.getState().advisorPersonas
+      const training = {
+        achachan: persona.find((p) => p.id === 'achachan')?.instructions,
+        chachan: persona.find((p) => p.id === 'chachan')?.instructions,
+      }
+      const reply = await askAdvisors(msg, fresh, history, abort.current.signal, training)
       const now = Date.now()
       addAdvisorMessage({ from: 'achachan', text: reply.achachan, at: new Date(now).toISOString() })
       addAdvisorMessage({ from: 'chachan', text: reply.chachan, at: new Date(now + 400).toISOString() })
@@ -112,10 +127,15 @@ export default function AIAdvisor() {
         title="AI Advisor"
         subtitle="ജീവിതത്തിലെ തീരുമാനങ്ങൾക്ക് നിങ്ങളോടൊപ്പം എന്നും"
         actions={
-          <span className="chip bg-white border border-[#e2e8f0] text-slate-600 h-9 px-3.5 inline-flex items-center gap-2">
-            <Sparkles size={13} className="text-amber-500" /> നല്ല ശീലങ്ങൾ, നല്ല ജീവിതം
-            <Heart size={13} className="text-rose-500 fill-rose-500" />
-          </span>
+          <>
+            <Link to="/ai-advisor/train" className="btn-ghost">
+              <GraduationCap size={15} /> Train Advisors
+            </Link>
+            <span className="chip bg-white border border-[#e2e8f0] text-slate-600 h-9 px-3.5 inline-flex items-center gap-2">
+              <Sparkles size={13} className="text-amber-500" /> നല്ല ശീലങ്ങൾ, നല്ല ജീവിതം
+              <Heart size={13} className="text-rose-500 fill-rose-500" />
+            </span>
+          </>
         }
       />
 
@@ -131,8 +151,8 @@ export default function AIAdvisor() {
       <div className="grid gap-4 grid-cols-1 xl:grid-cols-12 items-start">
         <div className="xl:col-span-8 space-y-4">
           <div className="grid grid-cols-2 gap-3">
-            {(Object.keys(PERSONAS) as (keyof typeof PERSONAS)[]).map((key) => {
-              const p = PERSONAS[key]
+            {(['achachan', 'chachan'] as const).map((key) => {
+              const p = personaMeta(key)
               const active = highlighted === key
               return (
                 <button
@@ -141,12 +161,16 @@ export default function AIAdvisor() {
                   className={`card p-4 text-left cursor-pointer transition ${active ? 'border-brand-400 ring-2 ring-brand-500/10' : ''}`}
                 >
                   <div className="flex items-center gap-3">
-                    <span
-                      className="h-11 w-11 rounded-full grid place-items-center text-[20px] shrink-0"
-                      style={{ background: `${p.color}1a` }}
-                    >
-                      {p.emoji}
-                    </span>
+                    {p.photo ? (
+                      <img src={p.photo} alt={p.name} className="h-11 w-11 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <span
+                        className="h-11 w-11 rounded-full grid place-items-center text-[20px] shrink-0"
+                        style={{ background: `${p.color}1a` }}
+                      >
+                        {p.emoji}
+                      </span>
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="text-[14px] font-extrabold text-slate-900 truncate">{p.name}</p>
                       <p className="text-[11px] text-slate-400 truncate">{p.tagline}</p>
@@ -169,15 +193,19 @@ export default function AIAdvisor() {
               )}
 
               {advisorMessages.map((m) => {
-                const meta = speakerMeta(m.from, settings.userName)
+                const meta = speakerMeta(m.from)
                 return (
                   <div key={m.id} className="flex items-start gap-2.5">
-                    <span
-                      className="h-8 w-8 rounded-full grid place-items-center text-[14px] shrink-0"
-                      style={{ background: `${meta.color}1a` }}
-                    >
-                      {meta.emoji}
-                    </span>
+                    {meta.photo ? (
+                      <img src={meta.photo} alt={meta.name} className="h-8 w-8 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <span
+                        className="h-8 w-8 rounded-full grid place-items-center text-[14px] shrink-0"
+                        style={{ background: `${meta.color}1a` }}
+                      >
+                        {meta.emoji}
+                      </span>
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="rounded-2xl bg-slate-50 border border-[#eef2f8] px-3.5 py-2.5">
                         <div className="flex items-baseline gap-2 mb-0.5">

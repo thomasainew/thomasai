@@ -160,6 +160,8 @@ const METHOD_ENUM = ['Bank Transfer', 'Cash', 'Card', 'Credit Card', 'Cheque', '
 
 export interface ScannedItem {
   item: string
+  /** Manufacturer or brand printed on the line, e.g. "Al Ain", "Nestle". */
+  brand?: string
   category: string
   qty: number
   /** Unit price, in the receipt's own currency. */
@@ -171,8 +173,12 @@ export interface ScannedItem {
 
 export interface ScannedBill {
   store: string
+  /** Receipt or invoice number, if the receipt shows one. */
+  invoiceNumber?: string
   date: string
   currency: Purchase extends { currency: infer C } ? C : string
+  /** VAT/tax amount printed as its own line, if any. */
+  vat?: number
   total: number
   items: ScannedItem[]
 }
@@ -181,8 +187,10 @@ const BILL_SCHEMA = {
   type: 'OBJECT',
   properties: {
     store: { type: 'STRING', description: 'Shop or merchant name' },
+    invoiceNumber: { type: 'STRING', description: 'Receipt or invoice number printed on the bill, if any. Omit if absent.' },
     date: { type: 'STRING', description: 'Purchase date as yyyy-MM-dd' },
     currency: { type: 'STRING', enum: CURRENCY_ENUM },
+    vat: { type: 'NUMBER', description: 'VAT/tax amount shown as its own line, if the receipt itemises one. Omit if not shown separately.' },
     total: { type: 'NUMBER', description: 'Grand total paid, including tax' },
     items: {
       type: 'ARRAY',
@@ -190,6 +198,7 @@ const BILL_SCHEMA = {
         type: 'OBJECT',
         properties: {
           item: { type: 'STRING' },
+          brand: { type: 'STRING', description: 'Manufacturer or brand name printed on the line, e.g. "Al Ain", "Nestle". Omit if not visible.' },
           category: { type: 'STRING', enum: PURCHASE_CATEGORIES as unknown as string[] },
           qty: { type: 'NUMBER' },
           price: { type: 'NUMBER', description: 'Unit price: line total divided by qty' },
@@ -207,7 +216,11 @@ const BILL_PROMPT = `You are reading a shopping receipt, invoice or bill.
 
 Extract every purchased line item. Rules:
 - price is the UNIT price: if a line shows a total for several units, divide by qty.
-- Skip subtotal, tax/VAT, discount, rounding and payment lines — items only.
+- brand is the manufacturer or brand name printed on the line (e.g. "Al Ain",
+  "Nestle", "Lulu"), separate from the generic item description. Only report
+  one if it is actually printed — never guess a brand from the product type.
+- Skip subtotal, discount and rounding lines — items only. If VAT/tax is shown
+  as its own line, report its amount in vat rather than folding it into an item.
 - date must be yyyy-MM-dd. Receipts are usually DD/MM/YYYY; read the day first
   unless that gives an impossible month.
 - If the currency is unclear, infer it from the merchant's country; default AED.
@@ -701,6 +714,8 @@ export async function askAdvisors(
   facts: unknown,
   history: AdvisorTurn[] = [],
   signal?: AbortSignal,
+  /** Free-text customisation per persona, from Train Advisors — added on top of the base character. */
+  training?: { achachan?: string; chachan?: string },
 ): Promise<AdvisorReply> {
   const prior = history
     .slice(-8)
@@ -717,11 +732,13 @@ ACHACHAN — the grandfather. Warm, gentle, big-picture. He connects money habit
 life outcomes: security, peace of mind, the kind of future being built one habit at
 a time. He encourages rather than scolds, and he is proud of real progress when the
 DATA shows it.
+${training?.achachan ? `Notes from the family on how Achachan specifically talks: ${training.achachan}` : ''}
 
 CHACHAN — a sharp, practical family elder who actually manages money for a living.
 Direct and specific. He names the exact category or merchant that is high, cites the
 real figures from DATA, and gives one concrete, actionable step — a budget number, an
 EMI plan, a saving target. He is caring but does not soften a real problem.
+${training?.chachan ? `Notes from the family on how Chachan specifically talks: ${training.chachan}` : ''}
 
 Ground every claim either persona makes in DATA. Never invent a category, merchant or
 figure that is not there — if DATA does not cover something, have that persona say so

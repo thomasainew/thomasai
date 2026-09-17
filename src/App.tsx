@@ -19,6 +19,7 @@ import Goals from '@/pages/Goals'
 import Reports from '@/pages/Reports'
 import CalendarPage from '@/pages/CalendarPage'
 import AIAdvisor from '@/pages/AIAdvisor'
+import TrainAdvisors from '@/pages/TrainAdvisors'
 import SettingsPage from '@/pages/SettingsPage'
 
 export default function App() {
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="reports" element={<Reports />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="ai-advisor" element={<AIAdvisor />} />
+            <Route path="ai-advisor/train" element={<TrainAdvisors />} />
             <Route path="categories" element={<Categories />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

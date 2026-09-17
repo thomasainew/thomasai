@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
-  Account, AdvisorMessage, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person, PriceWatch,
-  Settings, Subcategory, Transaction, Transfer,
+  Account, AdvisorMessage, AdvisorPersona, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person,
+  PriceWatch, Settings, Subcategory, Transaction, Transfer,
 } from '@/types'
 import {
   ACCOUNTS, BILLS, BUDGETS, DOCUMENTS, GOALS, LOANS, NOTES, PEOPLE, PRICE_WATCH, SETTINGS, TRANSACTIONS,
@@ -22,6 +22,7 @@ interface State {
   transactions: Transaction[]
   transfers: Transfer[]
   advisorMessages: AdvisorMessage[]
+  advisorPersonas: AdvisorPersona[]
   budgets: BudgetCategory[]
   loans: Loan[]
   people: Person[]
@@ -65,6 +66,7 @@ interface State {
 
   addAdvisorMessage: (m: Omit<AdvisorMessage, 'id'>) => void
   clearAdvisorMessages: () => void
+  upsertAdvisorPersona: (p: AdvisorPersona) => void
 
   addAccount: (a: Omit<Account, 'id'>) => void
   updateAccount: (id: string, patch: Partial<Account>) => void
@@ -129,6 +131,7 @@ const seedState = () => ({
   transactions: TRANSACTIONS,
   transfers: [] as Transfer[],
   advisorMessages: [] as AdvisorMessage[],
+  advisorPersonas: [] as AdvisorPersona[],
   budgets: BUDGETS,
   loans: LOANS,
   people: PEOPLE,
@@ -235,6 +238,7 @@ export const useStore = create<State>()(
           transactions: data.transactions,
           transfers: data.transfers ?? [],
           advisorMessages: data.advisorMessages ?? [],
+          advisorPersonas: data.advisorPersonas ?? [],
           budgets: data.budgets,
           loans: data.loans,
           people: data.people,
@@ -330,6 +334,10 @@ export const useStore = create<State>()(
       clearAdvisorMessages: () => {
         get().advisorMessages.forEach((m) => drop('advisorMessages', m.id))
         set({ advisorMessages: [] })
+      },
+      upsertAdvisorPersona: (p) => {
+        set({ advisorPersonas: [...get().advisorPersonas.filter((x) => x.id !== p.id), p] })
+        push('advisorPersonas', p)
       },
 
       // -------------------------------------------------------------- accounts

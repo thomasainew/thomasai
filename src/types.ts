@@ -189,6 +189,15 @@ export interface Category {
 
 export type AdvisorSpeaker = 'user' | 'achachan' | 'chachan'
 
+/** A persona's own photo and personality notes — see src/pages/TrainAdvisors.tsx. */
+export interface AdvisorPersona {
+  id: 'achachan' | 'chachan'
+  name: string
+  photo?: string
+  /** Free text folded into this persona's Gemini prompt, e.g. tone, background, quirks. */
+  instructions?: string
+}
+
 /** One line in the AI Advisor chat — see src/pages/AIAdvisor.tsx. */
 export interface AdvisorMessage {
   id: string
