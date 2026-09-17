@@ -7,6 +7,7 @@ import {
 import { useStore } from '@/store/useStore'
 import { PageHeader } from '@/components/ui/Primitives'
 import { askAdvisors, hasGemini, type AdvisorTurn } from '@/lib/gemini'
+import { composePersonaNotes } from '@/lib/advisorPersona'
 import { buildSnapshot, hasEnoughData } from '@/lib/insights'
 import type { AdvisorSpeaker } from '@/types'
 
@@ -103,8 +104,8 @@ export default function AIAdvisor() {
       )
       const persona = useStore.getState().advisorPersonas
       const training = {
-        achachan: persona.find((p) => p.id === 'achachan')?.instructions,
-        chachan: persona.find((p) => p.id === 'chachan')?.instructions,
+        achachan: composePersonaNotes(persona.find((p) => p.id === 'achachan')),
+        chachan: composePersonaNotes(persona.find((p) => p.id === 'chachan')),
       }
       const reply = await askAdvisors(msg, fresh, history, abort.current.signal, training)
       const now = Date.now()

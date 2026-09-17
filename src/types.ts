@@ -194,7 +194,9 @@ export interface AdvisorPersona {
   id: 'achachan' | 'chachan'
   name: string
   photo?: string
-  /** Free text folded into this persona's Gemini prompt, e.g. tone, background, quirks. */
+  /** Guided question-and-answer pairs about this character, folded into the prompt. */
+  qa?: { question: string; answer: string }[]
+  /** Anything else, free text — folded into this persona's Gemini prompt alongside qa. */
   instructions?: string
 }
 

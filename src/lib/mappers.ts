@@ -90,8 +90,13 @@ export const MAPPERS: {
   },
 
   advisorPersonas: {
-    to: (p: AdvisorPersona) => ({ id: p.id, name: p.name, photo: p.photo ?? null, instructions: p.instructions ?? null }),
-    from: (r): AdvisorPersona => ({ id: r.id, name: r.name, photo: r.photo ?? undefined, instructions: r.instructions ?? undefined }),
+    to: (p: AdvisorPersona) => ({
+      id: p.id, name: p.name, photo: p.photo ?? null, instructions: p.instructions ?? null, qa: p.qa ?? [],
+    }),
+    from: (r): AdvisorPersona => ({
+      id: r.id, name: r.name, photo: r.photo ?? undefined, instructions: r.instructions ?? undefined,
+      qa: Array.isArray(r.qa) ? r.qa : [],
+    }),
   },
 
   budgets: {
