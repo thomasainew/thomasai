@@ -587,6 +587,7 @@ export function TransactionModal({
         }}
         people={people.map((p) => p.name)}
         accounts={accounts}
+        transactions={transactions}
         onAdd={addTransaction}
       />
     </>

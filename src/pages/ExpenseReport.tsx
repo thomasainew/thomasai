@@ -453,6 +453,7 @@ export default function ExpenseReport() {
         onClose={() => setScan(false)}
         people={people.map((p) => p.name)}
         accounts={accounts}
+        transactions={transactions}
         onAdd={addTransaction}
       />
 
