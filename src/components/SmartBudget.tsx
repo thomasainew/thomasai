@@ -148,7 +148,7 @@ export function SmartBudget() {
         </div>
       </div>
 
-      <div className="grid gap-4 grid-cols-2 xl:grid-cols-6">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard label="Expected Income" value={money(sum.expectedIncome)} icon={<Wallet size={20} />} tint="#10b981" footer={<span className="text-slate-400 text-[10px] leading-tight block">From {expected.source}</span>} />
         <StatCard label="Planned Expenses" value={money(sum.plannedExpenses)} icon={<CalendarClock size={20} />} tint="#3b82f6" footer={<span className="text-slate-400">{sum.counts.Planned + sum.counts.Paid + sum.counts.Overdue} approved items</span>} />
         <StatCard label="Actual Spending" value={money(sum.actualSpending)} icon={<Wallet size={20} />} tint="#f43f5e" footer={<span className="text-slate-400">All expenses this month · {money(sum.paidOnPlan)} on plan</span>} />

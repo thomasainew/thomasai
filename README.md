@@ -1,159 +1,125 @@
 # CloudBasket 360 — Your Money. Smarter Life.
 
-Personal and family finance workspace — money, purchases, expenses, income and accounts in one fast app.
+Personal and family finance, household shopping and asset management in one private, cloud-synced app.
 
 **Live:** <https://www.cloudbasket.net> (Vercel, deployed from `main`)
 
 ## Stack
 
-| Layer | Choice | Why |
-|---|---|---|
-| Build | **Vite 7** | Instant HMR, ~4s production builds |
-| UI | **React 19 + TypeScript** | Type-safe components, strict mode on |
-| Styling | **Tailwind CSS v4** (`@tailwindcss/vite`) | No PostCSS config, CSS-first theme tokens |
-| Charts | **Recharts 2** | Responsive donuts, bars and trend lines |
-| State | **Zustand + persist** | Tiny store, auto-saves to localStorage |
-| Backend | **Supabase** (Postgres + Auth) | 12 RLS-scoped tables, email/password sign-in |
-| Routing | **React Router 7** (hash router) | Works from `file://` and any static host |
-| Icons | **lucide-react** | Consistent 1.5px stroke icon set |
+| Layer | Choice |
+|---|---|
+| Build | Vite 7, React 19, TypeScript (strict) |
+| Styling | Tailwind CSS v4, CSS-variable themes (light/dark, 6 colours, 3 card styles) |
+| State | Zustand, persisted locally, written through to Supabase |
+| Backend | Supabase — Postgres + Auth + Storage + one Edge Function |
+| Charts / export | Recharts · `write-excel-file` (real `.xlsx`, loaded on demand) |
+| Routing | React Router 7, hash routes for the app; static HTML for public pages |
 
 ## Setup
 
-### 1. Create the database tables
+### 1. Database — run every migration in order
 
-Open **Supabase → SQL Editor → New query** and run every migration in
-[`supabase/migrations/`](supabase/migrations) **in order**:
+**Supabase → SQL Editor → New query**, run each file in [`supabase/migrations/`](supabase/migrations) in order.
+`0015_cloudbasket360_v2.sql` is the current one. It is **additive** (nothing is dropped or rewritten) and safe
+to re-run.
 
-| Migration | What it does |
+| Migration | Adds |
 |---|---|
-| `0001_init.sql` | The 12 base tables, indexes, `updated_at` triggers and row level security |
-| `0002_scope_primary_keys.sql` | Keys become `(user_id, id)`. Without it the **second person to sign up fails** |
-| `0003_transaction_purchase_fields.sql` | `store`, `qty`, `warranty_months` on transactions |
-| `0004_categories_and_card_cycles.sql` | `categories` + `subcategories` tables, `subcategory` column, card statement days |
-| `0005_transaction_weight.sql` | `weight` and `weight_unit` on transactions |
+| `0001`–`0014` | Base tables, per-user keys, categories, transfers, budgets, advisor personas… |
+| `0015_cloudbasket360_v2.sql` | Opening balances, credit limits, bank styles · transaction kinds (refund, asset purchase), receipts, brand / pack size · interest & fees on transfers · loan ↔ loan-account link · assets, valuations, gold rates · smart-budget items and note payment schedules · document files · **family users with row-level permissions** · private storage bucket · public `site_config` |
 
-Every policy matches `auth.uid() = user_id`, so a signed-in user can only ever touch their own rows
-and the anon key alone reads nothing.
+> The app detects whether 0015 has been applied (`public.schema_info`). Until it has, it keeps working in a
+> compatibility mode (old columns only) and shows a "Database update needed" notice, so deploying the code
+> before running the migration is safe. Themes, gold rates, files, family users and the like need 0015.
 
-### 2. Point the app at your project
+### 2. Family-user edge function
 
-`.env.local` (git-ignored) holds:
+Creating a login needs the service-role key, which must never reach a browser, so it lives in
+[`supabase/functions/family-admin`](supabase/functions/family-admin/index.ts):
 
-```
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<anon key>
+```bash
+supabase functions deploy family-admin      # SUPABASE_URL / SERVICE_ROLE_KEY are provided automatically
 ```
 
-Only the **anon** key belongs here. The service_role key bypasses RLS and must never reach the browser.
+The function verifies the caller from their token, refuses anyone who is themselves a family member, and only
+touches members belonging to that owner.
 
-### 3. Tell Supabase where the app lives
+### 3. Environment
 
-**Supabase → Authentication → URL Configuration.** Confirmation and password-reset emails link to
-whatever is set here, so it must match where the app actually runs:
+`.env.local` (git-ignored): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Only the **anon** key belongs here.
+`GEMINI_API_KEY` (optional) enables bill scanning, AI insights and the advisor. In **Authentication → URL
+Configuration** set Site URL `https://www.cloudbasket.net` and add `https://www.cloudbasket.net/**` and
+`http://localhost:5180/**` to the redirect URLs.
 
-- **Site URL** — `https://www.cloudbasket.net`
-- **Redirect URLs** — add `https://www.cloudbasket.net/**`, `https://cloudbasket.net/**` and
-  `http://localhost:5180/**` for local work
-
-Leave this at its default and the links in those emails point somewhere the app is not.
-
-### 4. Optional: bill scanning and spending analysis
-
-Set `GEMINI_API_KEY` (or `VITE_GEMINI_API_KEY`) to enable *Scan Bill* and the AI insights panel.
-Without it both features hide themselves and everything else works unchanged.
-
-> **The key ships inside the browser bundle.** Vite inlines it at build time, so anyone who loads the
-> site can read it — unlike the Supabase anon key, which row level security defends. At minimum,
-> restrict it in **Google Cloud Console → Credentials** to HTTP referrers `cloudbasket.net/*` and
-> `www.cloudbasket.net/*`. The real fix is to move the call behind a Supabase Edge Function so the key
-> stays server-side.
-
-### 5. Sign in
-
-Create an account on the sign-in screen. A new account starts **empty** — add your accounts first,
-then income and expenses. Settings → Categories offers a starter category set.
-
-> Without the Supabase env vars the app still runs in **local-only mode** — no sign-in, data persists
-> to localStorage. That makes the UI usable before the database exists.
-
-## Run
+### 4. Run
 
 ```bash
 npm install
-npm run dev      # http://localhost:5180
-npm run build    # dist/ — static, deploy anywhere
-npm run preview  # serve the production build
-npm run lint     # tsc type check
+npm run dev        # http://localhost:5180
+npm run build      # dist/ — the app + static public pages + sitemap.xml + robots.txt
+npm test           # 100+ accounting / pricing / budget / P&L / gold checks (plain Node)
+npm run test:rls   # runs the real migrations in an in-process Postgres and tests family permissions
 ```
 
-## Deploying
+## How the money is calculated
 
-Vercel builds from `main` and serves <https://www.cloudbasket.net>. Environment variables are set in
-**Vercel → Settings → Environment Variables**, and because Vite inlines them at build time a change
-only takes effect on the **next deployment** — set the variable, then redeploy.
+Balances are **never stored and nudged**. Every balance is `opening balance + everything in the ledger`
+(`src/lib/ledger.ts`), so editing or deleting a transaction, or using two devices, cannot make it drift.
 
-| Variable | Needed for |
-|---|---|
-| `VITE_SUPABASE_URL` | Sign-in and cloud sync |
-| `VITE_SUPABASE_ANON_KEY` | Sign-in and cloud sync |
-| `GEMINI_API_KEY` | Bill scanning and the AI insights panel |
+* Cash / bank: income and refunds in, expenses out. Cards and loans hold **what you owe** as a positive number.
+* A **card purchase** raises debt and is counted once; paying the card is a **transfer** that lowers card debt and
+  the paying account — never a second expense.
+* A **loan** links to its loan account. Borrowing and loan-funded spending raise the debt; a repayment splits into
+  **principal** (lowers debt, not an expense) and **interest / fees** (expenses).
+* **Transfers** (including wife → husband) are one linked record: money out of one account, into another. Never
+  income or expense.
+* **Refunds** credit the account and reverse spending — they are not income. **Asset purchases** move cash but are
+  not household expenses.
+* **Net worth** = owned assets (cash & bank + your ownership share of each asset) − card debt − loan debt, each
+  counted once. Unused credit limits are not money you own.
+* Accounts made before opening balances existed get an implied opening balance (nothing visibly changes) and a
+  **Balance check** banner asks you to confirm each one — that is how the "AED 0 − AED 2,000 should be −AED 2,000"
+  drift is corrected without silently rewriting money.
 
 ## Features
 
-- **Dashboard** — greeting, AI month plan, 5 KPI cards, income vs expenses, budget progress, spend by person, loan tracker, currency converter, document expiry, notes, savings goals, report shortcuts.
-- **Accounts** — banks, cash wallets, credit cards and loan accounts; multi-currency balances rolled up into AED; balance-mix donut; add / edit / delete.
-- **Income** — totals vs target, category donut, per-account split, monthly trend, full transaction ledger.
-- **Expenses** — same ledger engine, plus payment-method breakdown and budget status.
-- **Purchases** — purchase management: Planned → Ordered → Delivered → Returned, warranty months, per-store and per-category analysis.
-- **Budget** — inline-editable category budgets, budget vs actual chart, spending overview, monthly period settings.
-- **Loans** — outstanding, EMI, interest rate, repayment progress, record-a-payment, overdue alerts, multi-currency (AED + INR).
-- **People** — who you spend on, who owes you, who you owe; click a person for their transactions.
-- **Bills & Subscriptions** — due dates, autopay toggles, mark-paid, recurring totals.
-- **Documents** — Emirates ID, visa, licence, mulkiya…; live expiry status and day counters.
-- **Notes & Follow Up** — categorised to-dos with status and overdue tracking.
-- **Price Tracker** — watchlist with previous/current/target prices; editing the current price keeps the old one for comparison.
-- **Shopping Assistant** — build a list, see the total before you go, budget-aware suggestions.
-- **Savings Goals** — targets, contributions, required monthly saving.
-- **Reports** — monthly summary, category, loan, document-expiry and notes reports + CSV export.
-- **Calendar** — every transaction, EMI, bill, expiry and note on a month grid.
-- **Settings** — profile, targets, FX rates, JSON backup / restore / reset.
+Dashboard with personal status & summary · bank-style account cards (FAB, ENBD, ADCB, HDFC, SBI…) · loans linked to
+loan accounts with EMI split · expenses grouped **one per receipt** · automatic **price tracker** (per kg / litre /
+unit, dated history, merge duplicates) · **shopping assistant** (search everything bought, plan quantities, estimate
+with stale-price warnings, monthly needs from history) · **Expense Report** with combined filters, grouping,
+sorting and printing · **Monthly P&L** with drill-down, comparison, print / PDF / Excel · **Smart Monthly Budget**
+built from EMIs, bills, payment schedules, document expiry and notes · **payment schedules** in Notes & Follow-ups ·
+documents with private cloud upload, preview, download and links · **Assets & Properties** by ownership share with
+valuation history · **gold valuation** (weight × purity × rate) · **Family Advisor** with your profile · family users
+with permissions · themes · SEO & analytics.
 
-## Data flow
+## Deploying
 
-The Zustand store stays the single source of truth for the UI. Every mutation updates local state
-immediately, then writes through to Postgres in the background — the UI never blocks on the network, and
-a failed write surfaces in the user menu and on Settings rather than being silently lost.
+Pushing to `main` deploys to Vercel. Vite inlines environment variables at build time, so change them in
+**Vercel → Settings → Environment Variables** and redeploy. `vercel.json` provides clean URLs
+(`/features`, `/security`, `/faq`) and cache / security headers.
 
-```
-page → store action → optimistic set()  → UI updates now
-                    → upsert/delete     → Postgres (RLS-scoped)
-```
+## SEO and analytics
 
-On sign-in the app pulls all twelve tables in parallel, or seeds them if the account is new.
-**Settings → Cloud Sync** exposes manual *Push to Cloud* / *Pull from Cloud* for when you want to force
-either direction. `src/lib/mappers.ts` maps camelCase domain fields to snake_case columns.
+Public pages only: the sign-in landing, `/features`, `/security`, `/faq`. `vite.seo.ts` generates their static HTML,
+`sitemap.xml`, `robots.txt`, canonical URLs, Open Graph / Twitter tags and JSON-LD from
+[`seo.config.json`](seo.config.json); **Settings → SEO & Analytics** edits that (download the file, replace it, redeploy).
+The signed-in app is marked `noindex`. Analytics / ad pixels (GA4, GTM, Meta, Google Ads, TikTok, LinkedIn, Clarity,
+Bing UET) load only on public pages, after consent where required, once per event, and stop the moment someone signs in —
+nothing from the app is ever sent to them. Indexing takes time and rankings are never guaranteed.
 
-Seed data lives in `src/data/seed.ts` (September 2026, AED base with INR at 0.0434). **Settings → Export**
-writes a JSON backup; **Reset** restores the seed set.
+## External services
 
-## Structure
-
-```
-src/
-  components/     Layout, Sidebar, Topbar, shared modals, LedgerPage
-    ui/           Card, StatCard, Badge, Progress, Modal primitives
-    charts/       Recharts wrappers (Donut, bars, trend line)
-  pages/          One file per route
-  store/          Zustand store with CRUD for every entity
-  lib/            format.ts (money, dates) · selectors.ts (all derived totals)
-  data/seed.ts    Demo dataset + FX rates
-  types.ts        Domain types
-supabase/
-  migrations/     0001_init.sql — tables, indexes, triggers, RLS policies
-```
+| Service | Used for | Credentials |
+|---|---|---|
+| Supabase | Database, auth, storage, edge function | anon key in env; service role only inside the edge function |
+| Gemini | Bill scanning, insights, advisor | `GEMINI_API_KEY` (optional) |
+| gold-api.com + open.er-api.com | Live gold and USD/INR (keyless) | none — **estimate**: spot × USD/INR + an assumed import-duty %. Enter a manual rate for a jeweller's / IBJA figure |
+| open.er-api.com | Exchange rates on request | none |
 
 ## Security notes
 
-- Only the anon key is bundled. RLS makes it useless without a session.
-- `.env.local` is git-ignored; `.env.example` documents the shape.
-- If a service_role key is ever exposed, rotate it in **Supabase → Settings → API**.
+- Only the anon key is bundled; row level security makes it useless without a session.
+- Family permissions (per section and per account) are enforced **in the database**, verified by `npm run test:rls`.
+- Files live in a private bucket under `<owner id>/…` and open through short-lived signed links.
+- If a service-role key is ever exposed, rotate it in **Supabase → Settings → API**.

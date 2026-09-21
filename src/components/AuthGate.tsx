@@ -3,6 +3,8 @@ import { AlertCircle, Loader2 } from 'lucide-react'
 import { hasSupabase, supabase } from '@/lib/supabase'
 import { pullAll, resolveSession } from '@/lib/sync'
 import { SignInScreen } from '@/components/SignInScreen'
+import { stopAnalytics } from '@/lib/analytics'
+import { setRobots } from '@/lib/siteConfig'
 import { useStore } from '@/store/useStore'
 
 type Phase = 'checking' | 'signed-out' | 'loading-data' | 'ready'
@@ -30,6 +32,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     const apply = async (userId: string | null, email: string | null) => {
       if (cancelled) return
       setSession(userId, email)
+      // Signed in: stop every marketing pixel and keep the app out of search results.
+      if (userId) {
+        stopAnalytics()
+        setRobots(false)
+      }
 
       if (!userId) {
         // Drop the previous account's rows so the next person to sign in on

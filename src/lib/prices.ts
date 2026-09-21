@@ -47,6 +47,14 @@ export interface PriceItem {
 
 const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
 
+/**
+ * Rent, EMIs, fees and other payments are not items on a shelf, so they are not
+ * price-tracked — unless the line carries a receipt, brand or pack size, which
+ * only a real purchase has.
+ */
+const SERVICE_CATEGORY = /\b(rent|utilit|loan|emi|insur|tax|fee|education|tuition|salary|subscription|bill|interest|govern|renewal)/i
+const looksLikePurchase = (t: Transaction) => Boolean(t.receiptId || t.brand || t.packSize || t.weight || t.qty) || !SERVICE_CATEGORY.test(t.category)
+
 const KG: Record<string, number> = { kg: 1, g: 0.001, lb: 0.453592, oz: 0.0283495 }
 const LITRE: Record<string, number> = { L: 1, ml: 0.001 }
 
@@ -104,7 +112,7 @@ export function buildPriceItems(txns: Transaction[], aliases: ItemAlias[]): Pric
 
   for (const t of txns) {
     if (t.type !== 'expense' || (t.kind ?? 'normal') === 'asset_purchase') continue
-    if (!t.description.trim() || t.amount <= 0) continue
+    if (!t.description.trim() || t.amount <= 0 || !looksLikePurchase(t)) continue
 
     const name = canonicalName(t.description, aliases)
     const key = norm(name)

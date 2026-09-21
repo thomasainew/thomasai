@@ -18,6 +18,10 @@ import {
 import { supabase } from '@/lib/supabase'
 import portrait from '@/assets/portrait.jpg'
 import { CloudBasketMark } from '@/components/CloudBasketMark'
+import {
+  DEFAULT_ANALYTICS, DEFAULT_SEO, applySeoToDocument, loadSiteConfig, setRobots, type AnalyticsConfig, type SeoConfig,
+} from '@/lib/siteConfig'
+import { needsConsentPrompt, saveConsent, startAnalytics, trackEvent } from '@/lib/analytics'
 
 type View = 'home' | 'login' | 'access' | 'features' | 'security'
 
@@ -30,6 +34,23 @@ const NAV: { view: View; label: string }[] = [
 export function SignInScreen() {
   const [view, setView] = useState<View>('home')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [site, setSite] = useState<{ seo: SeoConfig; analytics: AnalyticsConfig }>({ seo: DEFAULT_SEO, analytics: DEFAULT_ANALYTICS })
+  const [consentOpen, setConsentOpen] = useState(false)
+
+  // Public-page SEO and (consented) analytics. The signed-in app does neither.
+  useEffect(() => {
+    let live = true
+    setRobots(true)
+    applySeoToDocument(DEFAULT_SEO, 'home')
+    loadSiteConfig().then((c) => {
+      if (!live) return
+      setSite(c)
+      applySeoToDocument(c.seo, 'home')
+      startAnalytics(c.analytics)
+      setConsentOpen(needsConsentPrompt(c.analytics))
+    })
+    return () => { live = false }
+  }, [])
 
   useEffect(() => {
     if (view === 'home') return
@@ -230,7 +251,20 @@ export function SignInScreen() {
         </a>
       </footer>
 
-      {view !== 'home' && <Panel view={view} onClose={() => go('home')} onSwitch={go} />}
+      {view !== 'home' && <Panel view={view} onClose={() => go('home')} onSwitch={go} contactEmail={site.seo.contactEmail} onLead={() => trackEvent('lead')} />}
+
+      {consentOpen && (
+        <div role="dialog" aria-label="Cookie consent" className="fixed bottom-4 left-4 right-4 z-[60] mx-auto max-w-xl rounded-2xl border border-white/80 bg-white/95 p-4 shadow-2xl backdrop-blur">
+          <p className="text-[12.5px] leading-relaxed text-slate-700">
+            We would like to use analytics and advertising cookies on this public page to understand visits. They are never
+            used inside your account and no financial information is shared.
+          </p>
+          <div className="mt-3 flex gap-2 justify-end">
+            <button className="btn-ghost h-9" onClick={() => { saveConsent('denied'); setConsentOpen(false) }}>Decline</button>
+            <button className="btn-primary h-9" onClick={() => { saveConsent('granted'); setConsentOpen(false); startAnalytics(site.analytics) }}>Accept</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -417,7 +451,7 @@ const SECURITY = [
   'Signing out clears the data from this browser',
 ]
 
-function Panel({ view, onClose, onSwitch }: { view: Exclude<View, 'home'>; onClose: () => void; onSwitch: (v: View) => void }) {
+function Panel({ view, onClose, onSwitch, contactEmail, onLead }: { view: Exclude<View, 'home'>; onClose: () => void; onSwitch: (v: View) => void; contactEmail?: string; onLead: () => void }) {
   const title = { login: 'Welcome back', access: 'Request access', features: 'What you get', security: 'Privacy & security' }[view]
 
   return (
@@ -445,7 +479,16 @@ function Panel({ view, onClose, onSwitch }: { view: Exclude<View, 'home'>; onClo
               Cloud Basket is a private workspace. Accounts are created by the owner — there is no public sign-up.
               Ask the owner to set up your login, then come back and sign in.
             </p>
-            <button onClick={() => onSwitch('login')} className="btn-primary mt-6 h-11 w-full">
+            {contactEmail && (
+              <a
+                href={`mailto:${contactEmail}?subject=${encodeURIComponent('Request access to CloudBasket 360')}`}
+                onClick={onLead}
+                className="btn-primary mt-6 h-11 w-full"
+              >
+                Email the owner to request access <ArrowRight size={16} />
+              </a>
+            )}
+            <button onClick={() => onSwitch('login')} className={`${contactEmail ? 'btn-ghost mt-3' : 'btn-primary mt-6'} h-11 w-full`}>
               I already have a login <ArrowRight size={16} />
             </button>
           </>
@@ -463,7 +506,10 @@ function Panel({ view, onClose, onSwitch }: { view: Exclude<View, 'home'>; onClo
                 </li>
               ))}
             </ul>
-            <button onClick={() => onSwitch('login')} className="btn-primary mt-6 h-11 w-full">
+            <a href={view === 'features' ? '/features' : '/security'} className="mt-4 inline-block text-[12.5px] font-semibold text-brand-600">
+              Read the full {view === 'features' ? 'features' : 'security'} page · <span className="underline">FAQ at /faq</span> →
+            </a>
+            <button onClick={() => onSwitch('login')} className="btn-primary mt-4 h-11 w-full">
               Login <ArrowRight size={16} />
             </button>
           </>

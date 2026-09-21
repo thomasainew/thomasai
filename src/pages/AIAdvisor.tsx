@@ -9,6 +9,10 @@ import { PageHeader } from '@/components/ui/Primitives'
 import { askAdvisors, hasGemini, type AdvisorTurn } from '@/lib/gemini'
 import { composePersonaNotes } from '@/lib/advisorPersona'
 import { buildSnapshot, hasEnoughData } from '@/lib/insights'
+import { AdvisorProfileCard, isAddressed, useAdvisorProfile } from '@/components/AdvisorProfileCard'
+import { buildSnapshot as buildHousehold } from '@/lib/financials'
+import { buildPriceItems, suggestMonthly } from '@/lib/prices'
+import { convert, TODAY } from '@/lib/format'
 import type { AdvisorSpeaker } from '@/types'
 
 const DEFAULT_META: Record<'achachan' | 'chachan', { name: string; tagline: string; emoji: string; color: string }> = {
@@ -35,6 +39,7 @@ export default function AIAdvisor() {
     settings, transactions, accounts, budgets, bills, loans, goals,
     advisorMessages, addAdvisorMessage, advisorPersonas,
   } = useStore()
+  const profile = useAdvisorProfile()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +53,9 @@ export default function AIAdvisor() {
   const personaMeta = (id: 'achachan' | 'chachan') => {
     const custom = advisorPersonas.find((p) => p.id === id)
     const base = DEFAULT_META[id]
-    return { name: custom?.name || base.name, photo: custom?.photo, emoji: base.emoji, color: base.color, tagline: base.tagline }
+    // The name you gave the advisor in your profile wins over the built-in one.
+    const chosen = id === 'achachan' ? profile.advisorName.trim() : ''
+    return { name: chosen || custom?.name || base.name, photo: custom?.photo, emoji: base.emoji, color: base.color, tagline: base.tagline }
   }
 
   const speakerMeta = (from: AdvisorSpeaker) => {
@@ -56,7 +63,7 @@ export default function AIAdvisor() {
       const m = personaMeta(from)
       return { name: m.name, photo: m.photo, emoji: m.emoji, color: m.color }
     }
-    return { name: settings.userName, photo: undefined, emoji: settings.userName.charAt(0).toUpperCase(), color: '#64748b' }
+    return { name: profile.callMeBy || settings.userName, photo: undefined, emoji: settings.userName.charAt(0).toUpperCase(), color: '#64748b' }
   }
 
   const snapshot = useMemo(
@@ -72,7 +79,7 @@ export default function AIAdvisor() {
     const now = Date.now()
     addAdvisorMessage({
       from: 'achachan',
-      text: `നമസ്കാരം ${settings.userName}, ഞാൻ ഇവിടെയുണ്ട് നിന്റെ സാമ്പത്തിക യാത്രയിൽ കൂടെ നിൽക്കാൻ. എന്തും ചോദിക്കൂ.`,
+      text: `നമസ്കാരം ${profile.callMeBy || settings.userName}, ഞാൻ ഇവിടെയുണ്ട് നിന്റെ സാമ്പത്തിക യാത്രയിൽ കൂടെ നിൽക്കാൻ. എന്തും ചോദിക്കൂ.`,
       at: new Date(now).toISOString(),
     })
     addAdvisorMessage({
@@ -93,6 +100,11 @@ export default function AIAdvisor() {
     setInput('')
     setError(null)
     addAdvisorMessage({ from: 'user', text: msg, at: new Date().toISOString() })
+    // Optional: stay quiet unless spoken to by name.
+    if (profile.answerOnlyWhenAddressed && profile.advisorName.trim() && !isAddressed(msg, profile.advisorName)) {
+      setError(`Saved. You asked ${profile.advisorName} to reply only when called by name — start with “${profile.advisorName}, …”.`)
+      return
+    }
     setBusy(true)
     abort.current?.abort()
     abort.current = new AbortController()
@@ -107,7 +119,27 @@ export default function AIAdvisor() {
         achachan: composePersonaNotes(persona.find((p) => p.id === 'achachan')),
         chachan: composePersonaNotes(persona.find((p) => p.id === 'chachan')),
       }
-      const reply = await askAdvisors(msg, fresh, history, abort.current.signal, training)
+      // Facts pack: the records THIS login may read (the database limits what the app can load),
+      // plus the household picture and what the family usually buys.
+      const st = useStore.getState()
+      const household = buildHousehold({
+        today: TODAY, settings: st.settings, accounts: st.accounts, transactions: st.transactions, transfers: st.transfers, loans: st.loans,
+        assets: st.assets, bills: st.bills, documents: st.documents, notes: st.notes, budgetItems: st.budgetItems, people: st.people.map((p) => p.name),
+        toReport: (a, c) => convert(a, c, st.settings.baseCurrency), fx: convert,
+      })
+      const usualBuys = suggestMonthly(buildPriceItems(st.transactions, st.itemAliases), TODAY).slice(0, 12)
+        .map((n) => ({ item: n.name, perMonth: n.perMonth, pack: n.unit, lastPrice: n.lastPrice, lastDate: n.latestDate }))
+      const facts = {
+        ...fresh,
+        household: {
+          currency: st.settings.baseCurrency, netWorth: household.netWorth.netWorth, availableFunds: household.availableFunds,
+          debt: household.netWorth.liabilities, thisMonthIncome: household.plNow.income, thisMonthExpenses: household.plNow.expenses,
+          cashFlow: household.cashFlow, upcoming30Days: household.upcoming.slice(0, 6).map((u) => ({ name: u.name, due: u.dueDate, amount: u.amount })),
+          statusLabel: household.status.tier.label,
+        },
+        usualMonthlyPurchases: usualBuys,
+      }
+      const reply = await askAdvisors(msg, facts, history, abort.current.signal, training, profile)
       const now = Date.now()
       addAdvisorMessage({ from: 'achachan', text: reply.achachan, at: new Date(now).toISOString() })
       addAdvisorMessage({ from: 'chachan', text: reply.chachan, at: new Date(now + 400).toISOString() })
@@ -124,8 +156,10 @@ export default function AIAdvisor() {
 
   return (
     <div className="space-y-5 max-w-[1600px]">
+      <AdvisorProfileCard defaultOpen={!profile.callMeBy && !profile.advisorName} />
+
       <PageHeader
-        title="AI Advisor"
+        title="Family Advisor"
         subtitle="ജീവിതത്തിലെ തീരുമാനങ്ങൾക്ക് നിങ്ങളോടൊപ്പം എന്നും"
         actions={
           <>

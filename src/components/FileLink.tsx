@@ -64,7 +64,8 @@ export function CloudImage({ path, alt, className }: { path?: string; alt: strin
   useEffect(() => {
     let live = true
     setUrl(null)
-    if (path) signedUrl(path, false, 3600).then((u) => live && setUrl(u)).catch(() => undefined)
+    if (path?.startsWith('data:')) setUrl(path) // small local photo (used when cloud storage is not available)
+    else if (path) signedUrl(path, false, 3600).then((u) => live && setUrl(u)).catch(() => undefined)
     return () => { live = false }
   }, [path])
   if (!url) return <div className={`bg-gradient-to-br from-slate-100 to-slate-200 ${className ?? ''}`} aria-label={alt} />

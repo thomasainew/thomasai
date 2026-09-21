@@ -694,6 +694,32 @@ export interface AdvisorReply {
   chachan: string
 }
 
+/** What the person told us about themselves and their family — applied to every reply. */
+export interface AdvisorContext {
+  callMeBy?: string
+  advisorName?: string
+  character?: string
+  preferences?: string
+  familyNeeds?: string
+  goals?: string
+  responseStyle?: string
+}
+
+/** The personal-profile block for a prompt, or '' when nothing has been filled in. */
+export function profileBlock(c?: AdvisorContext): string {
+  if (!c) return ''
+  const lines = [
+    c.callMeBy && `Call the person: ${c.callMeBy}`,
+    c.advisorName && `The person calls you: ${c.advisorName}`,
+    c.character && `About the person (character): ${c.character}`,
+    c.preferences && `Their preferences: ${c.preferences}`,
+    c.familyNeeds && `Family needs: ${c.familyNeeds}`,
+    c.goals && `Their goals: ${c.goals}`,
+    c.responseStyle && `How they want answers: ${c.responseStyle}`,
+  ].filter(Boolean)
+  return lines.length ? `WHAT THE PERSON TOLD US ABOUT THEMSELVES (respect it):\n${lines.join('\n')}\n\n` : ''
+}
+
 const ADVISOR_SCHEMA = {
   type: 'OBJECT',
   properties: {
@@ -716,6 +742,7 @@ export async function askAdvisors(
   signal?: AbortSignal,
   /** Free-text customisation per persona, from Train Advisors — added on top of the base character. */
   training?: { achachan?: string; chachan?: string },
+  ctx?: AdvisorContext,
 ): Promise<AdvisorReply> {
   const prior = history
     .slice(-8)
@@ -742,8 +769,12 @@ ${training?.chachan ? `Notes from the family on how Chachan specifically talks: 
 
 Ground every claim either persona makes in DATA. Never invent a category, merchant or
 figure that is not there — if DATA does not cover something, have that persona say so
-plainly rather than guess. Two or three sentences each. No headings, no markdown.
+plainly rather than guess. When a recommendation depends on something essential that
+is missing (how many people the household feeds, a dietary need, a target amount), ask
+ONE short question instead of assuming. When you do recommend something, say which
+records it rests on. Two or three sentences each. No headings, no markdown.
 
+${profileBlock(ctx)}
 ${prior ? `CONVERSATION SO FAR:\n${prior}\n\n` : ''}THE PERSON'S MESSAGE: ${message}
 
 DATA:
@@ -755,4 +786,36 @@ ${JSON.stringify(facts)}`
     temperature: 0.5,
     signal,
   })
+}
+
+
+/**
+ * Monthly shopping suggestions, shaped by purchase history AND what the family
+ * told us (preferences, needs). The quantities come from history and are passed
+ * in as DATA — the model may adjust or question them, never invent prices.
+ */
+export async function askShoppingAdvisor(
+  request: string,
+  data: unknown,
+  ctx?: AdvisorContext,
+  signal?: AbortSignal,
+): Promise<string> {
+  const prompt = `You are a practical household-shopping adviser inside a family finance app.
+Use ONLY the purchase history in DATA (items, usual monthly quantities, last known prices and
+their dates). Never invent a price. If a price is old (see lastDate), say it is only an estimate.
+Fit the suggestions to the family's preferences and needs below. If something essential is
+missing (household size, dietary needs, a budget), ask one short question first.
+Answer briefly as a plain list of lines: "item — quantity per month — why". No markdown headings.
+
+${profileBlock(ctx)}REQUEST: ${request}
+
+DATA:
+${JSON.stringify(data)}`
+  const answer = await callGemini<{ answer: string }>({
+    parts: [{ text: prompt }],
+    schema: { type: 'OBJECT', properties: { answer: { type: 'STRING' } }, required: ['answer'] },
+    temperature: 0.3,
+    signal,
+  })
+  return String(answer.answer ?? '').trim()
 }

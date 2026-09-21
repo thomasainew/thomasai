@@ -1,0 +1,70 @@
+{
+  "siteName": "CloudBasket 360",
+  "baseUrl": "https://www.cloudbasket.net",
+  "locale": "en_IN",
+  "ogImage": "/og-image.png",
+  "twitterHandle": "",
+  "contactEmail": "",
+  "googleVerification": "",
+  "bingVerification": "",
+  "pages": {
+    "home": {
+      "path": "/",
+      "title": "CloudBasket 360 — AI-powered family finance, shopping & assets",
+      "description": "Manage your household money in one private cloud app: accounts, loans, receipts, price tracking, monthly profit & loss, assets and gold — with an AI Family Advisor.",
+      "changefreq": "weekly",
+      "priority": "1.0"
+    },
+    "features": {
+      "path": "/features",
+      "title": "Features — accounts, receipts, price tracker, P&L, assets | CloudBasket 360",
+      "description": "See everything CloudBasket 360 does: bank-style account cards, loans and EMIs, receipts grouped by shop, automatic price history, monthly P&L, assets and gold valuation.",
+      "changefreq": "monthly",
+      "priority": "0.8"
+    },
+    "security": {
+      "path": "/security",
+      "title": "Privacy & security | CloudBasket 360",
+      "description": "How CloudBasket 360 keeps family finances private: sign-in only, per-person permissions enforced in the database, private file storage, and no financial data sent to ad platforms.",
+      "changefreq": "monthly",
+      "priority": "0.7"
+    },
+    "faq": {
+      "path": "/faq",
+      "title": "FAQ — CloudBasket 360 questions answered",
+      "description": "Answers about CloudBasket 360: how balances are calculated, what counts as income or expense, family users, gold valuation and data privacy.",
+      "changefreq": "monthly",
+      "priority": "0.6"
+    }
+  },
+  "faqs": [
+    {
+      "q": "What is CloudBasket 360?",
+      "a": "CloudBasket 360 is a private, cloud-synced app for personal and family finance, household shopping and asset management. It keeps accounts, loans, receipts, price history, budgets, assets and documents in one place, so every screen shows the same records."
+    },
+    {
+      "q": "How are account balances calculated?",
+      "a": "Every balance is the opening balance plus the account's transactions and transfers. Nothing is stored as a number that can drift, so editing or deleting a transaction updates the balance everywhere."
+    },
+    {
+      "q": "What counts as income and expense in the profit & loss report?",
+      "a": "Salaries and other earned income count as income. Household spending, loan interest and fees count as expenses. Transfers between your own accounts, money you borrow, loan principal repayments and asset purchases are not part of the profit & loss, and a credit card purchase is counted once — not again when you pay the card."
+    },
+    {
+      "q": "Can my wife or family have their own login?",
+      "a": "Yes. The owner can create a separate user for each family member and choose which sections and accounts they can view or edit. Permissions are enforced by the database, not just hidden in the interface."
+    },
+    {
+      "q": "How is gold valued?",
+      "a": "Gold value is weight × purity × the current gold rate, then your ownership share. Making charges are not counted as recoverable value. Rates come from a live provider or a rate you enter yourself, and every valuation is labelled as an estimate with its source and time."
+    },
+    {
+      "q": "Do you share my financial data with advertising platforms?",
+      "a": "No. Analytics and ad pixels run only on the public pages, and only after consent where it is required. Dashboards, transactions, documents and family information are never sent to them."
+    },
+    {
+      "q": "Which currencies are supported?",
+      "a": "AED, INR and USD, with a reporting currency you choose and exchange rates that show the date they were set."
+    }
+  ]
+}

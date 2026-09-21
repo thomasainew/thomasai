@@ -245,6 +245,21 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 export type ThemeColor = 'blue' | 'emerald' | 'violet' | 'rose' | 'amber' | 'slate'
 export type CardStyle = 'soft' | 'flat' | 'glass'
 
+/** One line of the shopping list. Kept in settings so it follows you across devices. */
+export interface ShoppingListItem {
+  id: string
+  name: string
+  /** Packs (or units) planned. */
+  qty: number
+  /** Price per pack used for the estimate, and the date that price is from. */
+  price?: number
+  priceDate?: string
+  currency?: Currency
+  brand?: string
+  store?: string
+  bought?: boolean
+}
+
 export interface StatusTier {
   key: 'poor' | 'middle' | 'rich'
   label: string
@@ -273,10 +288,11 @@ export interface SettingsExtra {
   profilePhoto?: string
   statusTiers?: StatusTier[]
   advisorProfile?: FamilyAdvisorProfile
+  shoppingList?: ShoppingListItem[]
   /** Rates into AED, and the date they were set. */
   fx?: { rates: Record<string, number>; date: string; source: string }
   /** Net worth at the previous visit, to show the change since then. */
-  lastVisit?: { date: string; netWorth: number }
+  lastVisit?: { date: string; netWorth: number; prev?: { date: string; netWorth: number } }
 }
 
 export interface Settings {

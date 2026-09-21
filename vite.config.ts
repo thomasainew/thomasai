@@ -2,6 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
+import { seoPlugin } from './vite.seo'
 
 export default defineConfig(({ mode }) => {
   // Empty prefix so this sees unprefixed names too, from .env files and from
@@ -17,7 +18,7 @@ export default defineConfig(({ mode }) => {
   const pick = (...names: string[]) => names.map((n) => env[n]).find(Boolean) ?? ''
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), seoPlugin()],
     resolve: { alias: { '@': path.resolve(__dirname, './src') } },
     server: { port: 5180, open: true },
     define: {

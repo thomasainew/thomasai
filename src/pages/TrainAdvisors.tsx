@@ -150,7 +150,7 @@ export default function TrainAdvisors() {
         subtitle="Answer a few questions about Achachan and Chachan — it shapes how they reply, in Malayalam, to your real figures."
         actions={
           <Link to="/ai-advisor" className="btn-ghost">
-            <ArrowLeft size={15} /> Back to AI Advisor
+            <ArrowLeft size={15} /> Back to Family Advisor
           </Link>
         }
       />

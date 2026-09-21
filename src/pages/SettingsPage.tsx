@@ -4,12 +4,17 @@ import { useStore } from '@/store/useStore'
 import { Card, CardHead, PageHeader } from '@/components/ui/Primitives'
 import { Field } from '@/components/ui/Modal'
 import { money } from '@/lib/format'
-import { FX } from '@/data/seed'
 import { hasSupabase, supabase } from '@/lib/supabase'
 import { COLLECTIONS, pullAll, pushAll, replaceRemote, wipeRemote } from '@/lib/sync'
 import type { Currency } from '@/types'
+import { AppearanceTab } from '@/pages/settings/AppearanceTab'
+import { StatusTab } from '@/pages/settings/StatusTab'
+import { RatesTab } from '@/pages/settings/RatesTab'
+import { SecurityTab } from '@/pages/settings/SecurityTab'
+import { FamilyTab } from '@/pages/settings/FamilyTab'
+import { SeoTab } from '@/pages/settings/SeoTab'
 
-export default function SettingsPage() {
+function GeneralSettings() {
   const store = useStore()
   const { settings, updateSettings, clearAllData, userId, userEmail, syncError, lastSynced, hydrate } = store
   const [saved, setSaved] = useState(false)
@@ -94,9 +99,8 @@ export default function SettingsPage() {
   ] as const
 
   return (
-    <div className="space-y-5 max-w-[1100px]">
-      <PageHeader title="Settings" subtitle="Profile, currency, targets and your data." />
-
+    <div className="space-y-5">
+      
       {saved && (
         <div className="card px-5 py-3 bg-emerald-50/70 border-emerald-100 text-[13px] font-semibold text-emerald-800">
           ✅ Saved.
@@ -146,23 +150,6 @@ export default function SettingsPage() {
               Income target {money(settings.monthlyIncomeTarget)} · Budget {money(settings.monthlyBudget)} · Headroom{' '}
               <b className="text-slate-800">{money(settings.monthlyIncomeTarget - settings.monthlyBudget)}</b>
             </div>
-          </div>
-        </Card>
-
-        <Card>
-          <CardHead title="Exchange Rates" sub="Used to convert every amount into AED" />
-          <div className="px-5 pb-5 space-y-2.5">
-            {Object.entries(FX).map(([code, rate]) => (
-              <div key={code} className="flex items-center gap-3 rounded-xl border border-[#eef2f8] px-3.5 py-2.5">
-                <span className="text-[13px] font-bold text-slate-800 w-12">{code}</span>
-                <span className="flex-1 text-[12px] text-slate-500">1 {code} equals</span>
-                <span className="text-[13px] font-bold text-slate-800 tabular-nums">{rate} AED</span>
-              </div>
-            ))}
-            <p className="text-[11.5px] text-slate-400 pt-1">
-              Rates are fixed in <code className="text-[11px]">src/data/seed.ts</code> — swap in a live rates API when you
-              are ready.
-            </p>
           </div>
         </Card>
 
@@ -319,6 +306,37 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+    </div>
+  )
+}
+
+const TABS = [
+  { key: 'general', label: 'General' },
+  { key: 'status', label: 'Profile & Status' },
+  { key: 'appearance', label: 'Theme & Appearance' },
+  { key: 'rates', label: 'Currency & Rates' },
+  { key: 'family', label: 'Family Users' },
+  { key: 'security', label: 'Security' },
+  { key: 'seo', label: 'SEO & Analytics' },
+] as const
+
+export default function SettingsPage() {
+  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('general')
+  return (
+    <div className="space-y-5 max-w-[1200px]">
+      <PageHeader title="Settings" subtitle="Profile, appearance, currency, family access, security and your data." />
+      <div className="flex gap-1 flex-wrap border-b border-[#e8edf5]">
+        {TABS.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)} className={`px-4 h-10 text-[13px] font-semibold border-b-2 transition cursor-pointer ${tab === t.key ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{t.label}</button>
+        ))}
+      </div>
+      {tab === 'general' && <GeneralSettings />}
+      {tab === 'status' && <StatusTab />}
+      {tab === 'appearance' && <AppearanceTab />}
+      {tab === 'rates' && <RatesTab />}
+      {tab === 'family' && <FamilyTab />}
+      {tab === 'security' && <SecurityTab />}
+      {tab === 'seo' && <SeoTab />}
     </div>
   )
 }

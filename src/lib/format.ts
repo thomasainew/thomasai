@@ -18,7 +18,8 @@ export function getBaseCurrency() {
 }
 
 function format(value: number, currency: Currency, decimals: number) {
-  const n = Math.abs(value).toLocaleString('en-US', {
+  // Rupee amounts use Indian digit grouping (12,34,567); the others use the usual thousands.
+  const n = Math.abs(value).toLocaleString(currency === 'INR' ? 'en-IN' : 'en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   })

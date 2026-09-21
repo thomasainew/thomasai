@@ -822,7 +822,16 @@ export const useStore = create<State>()(
     {
       name: 'thomas-finance-v1',
       onRehydrateStorage: () => (state) => {
-        if (state) setBaseCurrency(state.settings.baseCurrency)
+        if (!state) return
+        setBaseCurrency(state.settings.baseCurrency)
+        if (state.settings.extra?.fx?.rates) setFxRates(state.settings.extra.fx.rates)
+        // Cached data is settled the same way as cloud data: opening balances are
+        // worked out for old accounts, then every balance is re-derived.
+        queueMicrotask(() => {
+          const s = useStore.getState()
+          useStore.setState({ accounts: freezeOpenings(s.accounts, s.transactions, s.transfers, s.loans, convert) })
+          recompute()
+        })
       },
       // Session fields are owned by Supabase auth, never by localStorage.
       partialize: (s) => {

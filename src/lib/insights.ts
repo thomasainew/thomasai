@@ -202,7 +202,7 @@ export function hardWarnings(
 /** Total of every expense currency-converted, used for sanity checks. */
 export function monthSpend(transactions: Transaction[], month = CURRENT_MONTH) {
   return transactions
-    .filter((t) => t.type === 'expense' && monthKey(t.date) === month)
+    .filter((t) => t.type === 'expense' && (t.kind ?? 'normal') === 'normal' && monthKey(t.date) === month)
     .reduce((a, t) => a + toBase(t.amount, t.currency), 0)
 }
 
@@ -249,7 +249,7 @@ export function buildFactsPack(
 
   const merchants = new Map<string, number>()
   for (const t of transactions) {
-    if (t.type !== 'expense' || !window.includes(monthKey(t.date))) continue
+    if (t.type !== 'expense' || (t.kind ?? 'normal') !== 'normal' || !window.includes(monthKey(t.date))) continue
     const key = (t.store ?? '').trim()
     if (!key) continue
     merchants.set(key, (merchants.get(key) ?? 0) + toBase(t.amount, t.currency))

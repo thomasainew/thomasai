@@ -9,7 +9,8 @@ import { Card, CardHead, Badge, Progress, StatCard, ViewAll, statusTone } from '
 import { Donut, DonutLegend, IncomeExpenseBars } from '@/components/charts/Charts'
 import { TransactionModal } from '@/components/TransactionModal'
 import { TransferModal } from '@/components/TransferModal'
-import { TODAY, convert, daysLeft, fmtDate, greeting, money, pct } from '@/lib/format'
+import { FinancialSnapshot } from '@/components/FinancialSnapshot'
+import { TODAY, convert, daysLeft, fmtDate, money, pct } from '@/lib/format'
 import { PREV_MONTH, accountTotals, availableMoney, budgetsWithSpend, byPerson, currentMonthLabel, docStatus, loanSummary, monthPlan, monthlySeries, netPosition, totals } from '@/lib/selectors'
 import type { Currency, TxnType } from '@/types'
 
@@ -43,14 +44,11 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5 max-w-[1600px]">
+      <FinancialSnapshot />
+
       {/* Greeting + AI banner */}
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[24px] font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
-            {greeting()}, {settings.userName} <span className="animate-pulse">👋</span>
-          </h1>
-          <p className="text-[12.5px] text-slate-500 mt-1">Here's your financial overview for {currentMonthLabel()}.</p>
-        </div>
+        <p className="text-[12.5px] text-slate-500">Detailed overview for {currentMonthLabel()}.</p>
         <div className="flex items-center gap-2 flex-wrap">
           <button className="btn-green" onClick={() => setModal('income')}>
             <Plus size={15} /> Add Income

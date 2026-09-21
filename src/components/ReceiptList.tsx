@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react'
 import type { Account, Transaction } from '@/types'
 import type { ReceiptEntry } from '@/lib/receipts'
@@ -56,8 +56,8 @@ export function ReceiptList({
             const expanded = open.has(e.key)
             const isReceipt = e.kind === 'receipt'
             return (
-              <>
-                <tr key={e.key} className="row-hover cursor-pointer" onClick={() => toggle(e.key)}>
+              <Fragment key={e.key}>
+                <tr className="row-hover cursor-pointer" onClick={() => toggle(e.key)}>
                   <td className="td text-slate-400">
                     {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                   </td>
@@ -75,7 +75,7 @@ export function ReceiptList({
                     {accountName(e.accountId)}
                     {e.method && <span className="block text-[10.5px] text-slate-400">{e.method}</span>}
                   </td>
-                  <td className={`td text-right font-bold tabular-nums ${e.kind === 'refund' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  <td className={`td text-right font-bold tabular-nums whitespace-nowrap ${e.kind === 'refund' ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {money(e.total, e.currency, 2)}
                   </td>
                   <td className="td" onClick={(ev) => ev.stopPropagation()}>
@@ -99,7 +99,7 @@ export function ReceiptList({
                 </tr>
 
                 {expanded && (
-                  <tr key={`${e.key}-items`} className="bg-slate-50/60">
+                  <tr className="bg-slate-50/60">
                     <td />
                     <td colSpan={6} className="px-4 py-3">
                       <table className="w-full">
@@ -144,7 +144,7 @@ export function ReceiptList({
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             )
           })}
         </tbody>

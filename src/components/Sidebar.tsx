@@ -1,13 +1,14 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  BarChart3, CalendarDays, CreditCard, FileText, FolderTree, Gauge, Home, Landmark,
+  BarChart3, CalendarDays, CreditCard, FileText, FolderTree, Gauge, Gem, Home, Landmark, Scale,
   MinusCircle, PiggyBank, PlusCircle, Settings as SettingsIcon, ShoppingBag, ShoppingCart, Sparkles, StickyNote, Tags, Users, Wallet,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { docStatus } from '@/lib/selectors'
 import { hasGemini } from '@/lib/gemini'
 import { AskModal } from '@/components/AskModal'
+import { canOpen } from '@/lib/access'
 import { CloudBasketMark } from '@/components/CloudBasketMark'
 
 const NAV = [
@@ -18,6 +19,8 @@ const NAV = [
   { to: '/expense-report', label: 'Expense Report', icon: ShoppingBag },
   { to: '/budget', label: 'Budget', icon: Gauge },
   { to: '/loans', label: 'Loans', icon: Landmark },
+  { to: '/assets', label: 'Assets & Properties', icon: Gem },
+  { to: '/profit-loss', label: 'Monthly P&L', icon: Scale },
   { to: '/people', label: 'People', icon: Users },
   { to: '/bills', label: 'Bills & Subscriptions', icon: CreditCard },
   { to: '/documents', label: 'Documents', icon: FileText, badge: 'docs' },
@@ -28,7 +31,7 @@ const NAV = [
   { to: '/categories', label: 'Categories', icon: FolderTree },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
-  { to: '/ai-advisor', label: 'AI Advisor', icon: Sparkles },
+  { to: '/ai-advisor', label: 'Family Advisor', icon: Sparkles },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ] as const
 
@@ -103,7 +106,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto scroll-thin px-2.5 pb-2">
-        {NAV.map(({ to, label, icon: Icon, ...rest }) => {
+        {NAV.filter((n) => canOpen(useStore.getState().membership, n.to)).map(({ to, label, icon: Icon, ...rest }) => {
           const count = 'badge' in rest && rest.badge ? badges[rest.badge as string] : 0
           return (
             <NavLink

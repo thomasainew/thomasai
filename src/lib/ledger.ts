@@ -279,6 +279,7 @@ export function debtMovements(
 ) {
   let borrowed = 0
   let principalRepaid = 0
+  let cardRepaid = 0
   for (const tr of transfers) {
     if (filter.from && tr.date < filter.from) continue
     if (filter.to && tr.date > filter.to) continue
@@ -286,10 +287,11 @@ export function debtMovements(
     const destId = transferDestAccountId(tr, loans)
     const dest = accounts.find((a) => a.id === destId)
     if (from && isLiability(from.type)) borrowed += toReport(tr.amount, tr.currency)
-    if (dest && isLiability(dest.type)) principalRepaid += toReport(transferPrincipal(tr), tr.currency)
-    else if (tr.toKind === 'loan') principalRepaid += toReport(transferPrincipal(tr), tr.currency)
+    // Repaying a loan (its principal) and paying a credit card are both debt reduction, reported apart.
+    if (dest?.type === 'card') cardRepaid += toReport(transferPrincipal(tr), tr.currency)
+    else if (dest?.type === 'loan' || tr.toKind === 'loan') principalRepaid += toReport(transferPrincipal(tr), tr.currency)
   }
-  return { borrowed: round2(borrowed), principalRepaid: round2(principalRepaid) }
+  return { borrowed: round2(borrowed), principalRepaid: round2(principalRepaid), cardRepaid: round2(cardRepaid) }
 }
 
 // ---------------------------------------------------------------------------

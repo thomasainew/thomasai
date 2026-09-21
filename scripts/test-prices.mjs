@@ -82,6 +82,12 @@ test('asset purchases and refunds are not price points', () => {
   assert.equal(items.length, 0)
 })
 
+test('rent and other services are not price-tracked, but a branded grocery in any category is', () => {
+  assert.equal(buildPriceItems([t('1', '2026-08-01', 'Rent September', 5000, { category: 'Home / Rent' })], []).length, 0)
+  assert.equal(buildPriceItems([t('2', '2026-08-01', 'Milk', 6, { category: 'Groceries' })], []).length, 1)
+  assert.equal(buildPriceItems([t('3', '2026-08-01', 'Milk', 6, { category: 'Household bills', brand: 'Almarai' })], []).length, 1)
+})
+
 console.log('Shopping assistant')
 test('every purchased item is searchable, with latest price/date/brand/store', () => {
   const items = buildPriceItems([

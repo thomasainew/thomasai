@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { ArrowDownRight, ArrowUpRight, Download, FileSpreadsheet, Printer, Scale, X } from 'lucide-react'
-import writeExcelFile from 'write-excel-file/browser'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Empty, PageHeader, StatCard } from '@/components/ui/Primitives'
 import { IncomeExpenseBars } from '@/components/charts/Charts'
@@ -109,7 +108,7 @@ export default function ProfitLoss() {
     <div class="k"><div>Income<b>${money(cur.income, undefined, 2)}</b></div><div>Expenses<b>${money(cur.expenses, undefined, 2)}</b></div><div>Net surplus / deficit<b>${money(cur.net, undefined, 2)}</b></div><div>vs ${per.prevLabel}<b>${net.delta >= 0 ? '+' : '−'}${money(Math.abs(net.delta), undefined, 2)}</b></div></div>
     <h2>Income by source</h2><table><tbody>${rows(cur.incomeBySource)}<tr class="tot"><td>Total income</td><td class="n">${money(cur.income, undefined, 2)}</td></tr></tbody></table>
     <h2>Expenses by category</h2><table><tbody>${rows(cur.expenseByCategory)}<tr class="tot"><td>Total expenses (net of refunds)</td><td class="n">${money(cur.expenses, undefined, 2)}</td></tr></tbody></table>
-    <h2>Cash movements outside the P&amp;L</h2><table><tbody><tr><td>Borrowed money received</td><td class="n">${money(outside.borrowed, undefined, 2)}</td></tr><tr><td>Loan principal repaid</td><td class="n">${money(outside.principalRepaid, undefined, 2)}</td></tr><tr><td>Assets purchased</td><td class="n">${money(outside.assets, undefined, 2)}</td></tr><tr><td>Transfers between family members</td><td class="n">${money(outside.fam, undefined, 2)}</td></tr></tbody></table>
+    <h2>Cash movements outside the P&amp;L</h2><table><tbody><tr><td>Borrowed money received</td><td class="n">${money(outside.borrowed, undefined, 2)}</td></tr><tr><td>Loan principal repaid</td><td class="n">${money(outside.principalRepaid, undefined, 2)}</td></tr><tr><td>Credit card repayments</td><td class="n">${money(outside.cardRepaid, undefined, 2)}</td></tr><tr><td>Assets purchased</td><td class="n">${money(outside.assets, undefined, 2)}</td></tr><tr><td>Transfers between family members</td><td class="n">${money(outside.fam, undefined, 2)}</td></tr></tbody></table>
     </body></html>`
     const w = window.open('', '_blank')
     if (!w) return alert('Please allow pop-ups to print the report.')
@@ -120,6 +119,7 @@ export default function ProfitLoss() {
   }
 
   const exportExcel = async () => {
+    const { default: writeExcelFile } = await import('write-excel-file/browser') // loaded only when used
     const H = (v: string) => ({ value: v, fontWeight: 'bold' as const })
     const N = (v: number) => ({ value: Math.round(v * 100) / 100, type: Number })
     await writeExcelFile([
@@ -144,6 +144,7 @@ export default function ProfitLoss() {
           [H('Outside the P&L (cash movements)')],
           [{ value: 'Borrowed money received' }, N(outside.borrowed)],
           [{ value: 'Loan principal repaid' }, N(outside.principalRepaid)],
+          [{ value: 'Credit card repayments' }, N(outside.cardRepaid)],
           [{ value: 'Assets purchased' }, N(outside.assets)],
           [{ value: 'Family transfers' }, N(outside.fam)],
         ],
@@ -238,6 +239,7 @@ export default function ProfitLoss() {
             {[
               ['Borrowed money received', outside.borrowed, 'Debt goes up, cash goes up'],
               ['Loan principal repaid', outside.principalRepaid, 'Debt goes down (interest & fees are in expenses)'],
+              ['Credit card repayments', outside.cardRepaid, 'Already counted when the card was used'],
               ['Assets purchased', outside.assets, 'Kept as assets, not household spending'],
               ['Transfers between family', outside.fam, 'Out of one account, into another'],
             ].map(([label, v, hint]) => (

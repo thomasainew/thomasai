@@ -81,6 +81,11 @@ test('P&L counts the card purchase once; the repayment adds no expense', () => {
   const s = summarise(plEntries(t, [repay], accts), toAed)
   assert.equal(s.expenses, 1500)
 })
+test('a card repayment is reported as card repayment, not loan principal', () => {
+  const d = debtMovements([repay], accts, [], {}, toAed)
+  assert.equal(d.cardRepaid, 1500)
+  assert.equal(d.principalRepaid, 0)
+})
 test('debt and available credit are reported separately', () => {
   const card = withDerivedBalances(accts, [txn('p', 'expense', 1500, 'card')], [], [], fx).find((a) => a.id === 'card')
   const f = cardFigures(card)
@@ -138,6 +143,7 @@ test('EMI: principal reduces debt; interest + fees are expenses; principal is no
   assert.equal(s.expenses, 150) // interest + fees only
   const d = debtMovements([emi], accs, [loan], {}, toAed)
   assert.equal(d.principalRepaid, 850)
+  assert.equal(d.cardRepaid, 0)
 })
 test('linked loan record takes its outstanding from the loan account', () => {
   const accs = [acct('bank', 'bank', { openingBalance: 10000 }), acct('loanacc', 'loan', { openingBalance: 10000 })]
