@@ -25,6 +25,12 @@ create table if not exists public.schema_info (
 );
 insert into public.schema_info (id, version) values (1, 15)
   on conflict (id) do update set version = excluded.version;
+-- Supabase may switch row level security on for every new table; without a policy the
+-- version row would be invisible and the app would think this migration had not run.
+alter table public.schema_info enable row level security;
+drop policy if exists "schema_info_read" on public.schema_info;
+create policy "schema_info_read" on public.schema_info for select to authenticated using (true);
+grant select on public.schema_info to authenticated;
 
 -- ---------------------------------------------------------- column additions ---
 alter table public.accounts
@@ -413,3 +419,6 @@ create policy "cb_delete" on storage.objects for delete to authenticated
   using (bucket_id = 'cloudbasket' and (
     (storage.foldername(name))[1] = (select auth.uid())::text
     or public.member_of(public.try_uuid((storage.foldername(name))[1]), 'documents', true)));
+
+-- Make the API pick up the new tables and columns straight away.
+notify pgrst, 'reload schema';

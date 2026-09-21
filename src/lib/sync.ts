@@ -55,8 +55,13 @@ export async function resolveSession(userId: string): Promise<SessionContext> {
   const client = db()
 
   const version = await client.from('schema_info').select('version').maybeSingle()
-  // A missing table means 0015 has not been run — compatibility mode.
-  const schemaV2 = !version.error && (version.data?.version ?? 0) >= 15
+  let schemaV2 = !version.error && (version.data?.version ?? 0) >= 15
+  // The version row can be hidden (row level security with no policy, or a stale API
+  // cache). A second, independent probe: if a v2-only table answers, the migration ran.
+  if (!schemaV2) {
+    const probe = await client.from('household_members').select('member_id').limit(1)
+    schemaV2 = !probe.error
+  }
   ctx.schemaV2 = schemaV2
   ctx.ownerId = userId
 
