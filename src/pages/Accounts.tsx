@@ -8,7 +8,11 @@ import { useStore } from '@/store/useStore'
 import { Card, CardHead, Badge, PageHeader, StatCard, statusTone } from '@/components/ui/Primitives'
 import { Donut, DonutLegend } from '@/components/charts/Charts'
 import { Modal, Field } from '@/components/ui/Modal'
-import { TransferModal } from '@/components/TransferModal'
+import { TransferModal, type TransferPreset } from '@/components/TransferModal'
+import { BankCard } from '@/components/BankCard'
+import { BANKS, detectBank } from '@/data/banks'
+import { round2 } from '@/lib/ledger'
+import { AlertTriangle, Check } from 'lucide-react'
 import { accountLabel } from '@/lib/accounting'
 import { TODAY, fmtDate, money } from '@/lib/format'
 import { accountTotals, inMonth, totals as monthTotals } from '@/lib/selectors'
@@ -21,16 +25,6 @@ const TYPE_LABEL: Record<AccountType, string> = {
   loan: 'Loan Account',
 }
 
-/** Darken a hex colour by a fraction, for the card gradient's far end. */
-function shade(hex: string, amount: number) {
-  const n = parseInt(hex.slice(1), 16)
-  const clamp = (v: number) => Math.max(0, Math.min(255, v))
-  const r = clamp(((n >> 16) & 255) * (1 - amount))
-  const g = clamp(((n >> 8) & 255) * (1 - amount))
-  const b = clamp((n & 255) * (1 - amount))
-  return `rgb(${r | 0}, ${g | 0}, ${b | 0})`
-}
-
 export default function Accounts() {
   const { accounts, transactions, transfers, loans, addAccount, updateAccount, removeAccount, removeTransfer } = useStore()
   const [tab, setTab] = useState<'all' | AccountType>('all')
@@ -39,7 +33,7 @@ export default function Accounts() {
   const [editing, setEditing] = useState<Account | null>(null)
   const [editBalances, setEditBalances] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
-  const [transferFromId, setTransferFromId] = useState<string | null>(null)
+  const [transferPreset, setTransferPreset] = useState<TransferPreset | null>(null)
   const [txnFilterId, setTxnFilterId] = useState<string | null>(null)
   const [cardMenu, setCardMenu] = useState<string | null>(null)
 
@@ -119,7 +113,7 @@ export default function Accounts() {
         subtitle="Manage all your bank accounts, wallets, cards and loans in one place."
         actions={
           <div className="flex gap-2">
-            <button className="btn-ghost" onClick={() => { setTransferFromId(null); setTransferOpen(true) }}>
+            <button className="btn-ghost" onClick={() => { setTransferPreset(null); setTransferOpen(true) }}>
               <ArrowLeftRight size={15} /> Transfer
             </button>
             <button
@@ -135,14 +129,16 @@ export default function Accounts() {
         }
       />
 
+      <BalanceCheck />
+
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Bank Accounts" value={money(totals.bank)} icon={<Landmark size={20} />} tint="#3b82f6"
           footer={<span className="text-slate-400">{accounts.filter((a) => a.type === 'bank').length} accounts</span>} />
         <StatCard label="Cash Wallets" value={money(totals.cash)} icon={<Wallet size={20} />} tint="#10b981"
           footer={<span className="text-slate-400">{accounts.filter((a) => a.type === 'cash').length} wallets</span>} />
-        <StatCard label="Credit Cards" value={money(totals.card)} icon={<CreditCard size={20} />} tint="#8b5cf6"
+        <StatCard label="Card Debt" value={money(totals.card)} icon={<CreditCard size={20} />} tint="#8b5cf6"
           footer={<span className="text-slate-400">{accounts.filter((a) => a.type === 'card').length} cards</span>} />
-        <StatCard label="Loans" value={money(totals.loan)} icon={<Banknote size={20} />} tint="#ef4444"
+        <StatCard label="Loans Owed" value={money(totals.loan)} icon={<Banknote size={20} />} tint="#ef4444"
           footer={<span className="text-rose-500 font-semibold">↑ {accounts.filter((a) => a.type === 'loan').length} active loans</span>} />
         <StatCard label="Net Position" value={money(totals.net)} icon={<PieChart size={20} />} tint="#f59e0b"
           footer={<span className="text-slate-400">Bank + cash, less cards and loans</span>} />
@@ -190,73 +186,60 @@ export default function Accounts() {
           {view === 'card' ? (
             <div className="p-5 grid gap-4 sm:grid-cols-2">
               {list.map((a) => (
-                <div
+                <BankCard
                   key={a.id}
-                  className="relative rounded-2xl p-4 text-white overflow-hidden min-h-[168px] flex flex-col justify-between"
-                  style={{ background: `linear-gradient(135deg, ${a.color}, ${shade(a.color, 0.45)})` }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-[15px] font-extrabold truncate">{a.name}</p>
-                      <p className="text-[11px] text-white/70 truncate">
-                        {a.owner ? `${a.owner.toUpperCase()} · ` : ''}{TYPE_LABEL[a.type]}
-                      </p>
-                    </div>
-                    <span className="chip bg-white/20 text-white text-[10px] font-bold shrink-0">● {a.status}</span>
-                  </div>
-
-                  <div>
-                    <p className="text-[11px] text-white/70 font-mono tracking-wide mb-1">
-                      {a.details && a.details !== '—' ? `•••• •••• ${a.details.replace(/\D/g, '').slice(-4)}` : a.details}
-                    </p>
-                    <p className="text-[10px] text-white/60">
-                      {a.type === 'card' ? 'Outstanding Balance' : 'Available Balance'}
-                    </p>
-                    <p className="text-[22px] font-extrabold tracking-tight">{money(a.balance, a.currency)}</p>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 pt-1">
-                    <button
-                      onClick={() => setTxnFilterId(txnFilterId === a.id ? null : a.id)}
-                      className="flex-1 h-8 rounded-lg bg-white/15 hover:bg-white/25 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
-                    >
-                      <Receipt size={12} /> Transactions
-                    </button>
-                    <button
-                      onClick={() => { setTransferFromId(a.id); setTransferOpen(true) }}
-                      className="flex-1 h-8 rounded-lg bg-white/15 hover:bg-white/25 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
-                    >
-                      <ArrowLeftRight size={12} /> Transfer
-                    </button>
-                    <div className="relative">
+                  account={a}
+                  footer={
+                    <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => setCardMenu(cardMenu === a.id ? null : a.id)}
-                        className="h-8 w-8 grid place-items-center rounded-lg bg-white/15 hover:bg-white/25 cursor-pointer transition"
+                        onClick={() => setTxnFilterId(txnFilterId === a.id ? null : a.id)}
+                        className="flex-1 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
                       >
-                        <MoreVertical size={13} />
+                        <Receipt size={12} /> Transactions
                       </button>
-                      {cardMenu === a.id && (
-                        <div className="absolute right-0 bottom-9 w-32 card p-1.5 z-20 animate-pop text-slate-700">
-                          <button
-                            onClick={() => { setEditing(a); setModal(true); setCardMenu(null) }}
-                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold hover:bg-slate-50 cursor-pointer inline-flex items-center gap-2"
-                          >
-                            <Pencil size={12} /> Edit
-                          </button>
-                          <button
-                            onClick={() => {
-                              setCardMenu(null)
-                              if (window.confirm(`Remove ${a.name}? This does not delete its past transactions.`)) removeAccount(a.id)
-                            }}
-                            className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 cursor-pointer inline-flex items-center gap-2"
-                          >
-                            <Trash2 size={12} /> Delete
-                          </button>
-                        </div>
-                      )}
+                      <button
+                        onClick={() => {
+                          setTransferPreset(
+                            a.type === 'card' ? { toAccountId: a.id, purpose: 'Credit card payment' }
+                              : a.type === 'loan' ? { toAccountId: a.id, purpose: 'Loan payment' }
+                                : { fromAccountId: a.id },
+                          )
+                          setTransferOpen(true)
+                        }}
+                        className="flex-1 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
+                      >
+                        <ArrowLeftRight size={12} /> {a.type === 'card' ? 'Pay card' : a.type === 'loan' ? 'Repay' : 'Transfer'}
+                      </button>
+                      <div className="relative">
+                        <button
+                          onClick={() => setCardMenu(cardMenu === a.id ? null : a.id)}
+                          className="h-8 w-8 grid place-items-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer transition"
+                        >
+                          <MoreVertical size={13} />
+                        </button>
+                        {cardMenu === a.id && (
+                          <div className="absolute right-0 bottom-9 w-32 card p-1.5 z-20 animate-pop text-slate-700">
+                            <button
+                              onClick={() => { setEditing(a); setModal(true); setCardMenu(null) }}
+                              className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold hover:bg-slate-50 cursor-pointer inline-flex items-center gap-2"
+                            >
+                              <Pencil size={12} /> Edit
+                            </button>
+                            <button
+                              onClick={() => {
+                                setCardMenu(null)
+                                if (window.confirm(`Remove ${a.name}? This does not delete its past transactions.`)) removeAccount(a.id)
+                              }}
+                              className="w-full text-left px-2.5 py-1.5 rounded-lg text-[12px] font-semibold text-rose-600 hover:bg-rose-50 cursor-pointer inline-flex items-center gap-2"
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  }
+                />
               ))}
 
               <button
@@ -298,8 +281,15 @@ export default function Accounts() {
                         {editBalances ? (
                           <input
                             type="number"
-                            value={a.balance}
-                            onChange={(e) => updateAccount(a.id, { balance: Number(e.target.value) || 0 })}
+                            defaultValue={a.balance}
+                            title="Type the balance your bank shows. The opening balance is adjusted so it matches — transactions are untouched."
+                            onBlur={(e) => {
+                              const want = Number(e.target.value)
+                              if (Number.isNaN(want) || want === a.balance) return
+                              // balance = opening + ledger → opening = wanted − ledger
+                              const ledger = round2(a.balance - (a.openingBalance ?? 0))
+                              updateAccount(a.id, { openingBalance: round2(want - ledger), openingConfirmed: true })
+                            }}
                             className="w-28 h-8 rounded-lg border border-slate-200 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/10 outline-none px-2 text-right font-bold tabular-nums"
                           />
                         ) : (
@@ -445,7 +435,7 @@ export default function Accounts() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { icon: '📄', title: 'Account Statements', desc: 'Download your accounts and this month’s transactions as CSV.', btn: 'Download Statements', color: '#10b981', onClick: downloadStatement },
-          { icon: '🔄', title: 'Update Balances', desc: 'Edit every account balance inline in the table above.', btn: editBalances ? 'Done Editing' : 'Update All Balances', color: '#3b82f6', onClick: () => setEditBalances((v) => !v) },
+          { icon: '🔄', title: 'Update Balances', desc: 'Match balances to your bank statements — the opening balance adjusts, transactions stay untouched.', btn: editBalances ? 'Done' : 'Reconcile Balances', color: '#3b82f6', onClick: () => setEditBalances((v) => !v) },
           { icon: '🏦', title: 'Manage Loans', desc: 'View and manage your loan accounts and payments.', btn: 'View Loans', color: '#8b5cf6', to: '/loans' },
           { icon: '📊', title: 'Reports', desc: 'View spending and account reports with detailed insights.', btn: 'View Reports', color: '#f59e0b', to: '/reports' },
         ].map((c) => (
@@ -479,8 +469,8 @@ export default function Accounts() {
       <AccountModal open={modal} onClose={() => setModal(false)} editing={editing} onSave={editing ? (patch) => updateAccount(editing.id, patch) : addAccount} />
       <TransferModal
         open={transferOpen}
-        onClose={() => { setTransferOpen(false); setTransferFromId(null) }}
-        presetFromId={transferFromId}
+        onClose={() => { setTransferOpen(false); setTransferPreset(null) }}
+        preset={transferPreset}
       />
     </div>
   )
@@ -499,21 +489,24 @@ function AccountModal({
 }) {
   const [form, setForm] = useState({
     name: '', type: 'bank' as AccountType, details: '', balance: '', currency: 'AED' as Currency, color: '#3b82f6',
-    statementDay: '', dueDay: '', owner: '',
+    statementDay: '', dueDay: '', owner: '', creditLimit: '', bankStyle: '',
   })
+  const people = useStore((st) => st.people)
 
   useEffect(() => {
     if (open)
       setForm(
         editing
           ? {
-              name: editing.name, type: editing.type, details: editing.details, balance: String(editing.balance),
+              name: editing.name, type: editing.type, details: editing.details,
+              balance: String(editing.openingBalance ?? editing.balance),
+              creditLimit: editing.creditLimit ? String(editing.creditLimit) : '', bankStyle: editing.bankStyle ?? '',
               currency: editing.currency, color: editing.color,
               statementDay: editing.statementDay ? String(editing.statementDay) : '',
               dueDay: editing.dueDay ? String(editing.dueDay) : '',
               owner: editing.owner ?? '',
             }
-          : { name: '', type: 'bank', details: '', balance: '', currency: 'AED', color: '#3b82f6', statementDay: '', dueDay: '', owner: '' },
+          : { name: '', type: 'bank', details: '', balance: '', currency: 'AED', color: '#3b82f6', statementDay: '', dueDay: '', owner: '', creditLimit: '', bankStyle: '' },
       )
   }, [open, editing])
 
@@ -523,7 +516,13 @@ function AccountModal({
       name: form.name.trim(),
       type: form.type,
       details: form.details || '—',
+      // What the form calls Balance is the OPENING balance; the balance shown
+      // in the app is always opening + transactions.
       balance: Number(form.balance) || 0,
+      openingBalance: Number(form.balance) || 0,
+      openingConfirmed: true,
+      creditLimit: form.type === 'card' && Number(form.creditLimit) > 0 ? Number(form.creditLimit) : undefined,
+      bankStyle: form.bankStyle || undefined,
       currency: form.currency,
       color: form.color,
       status: form.type === 'card' ? 'Available' : 'Active',
@@ -549,8 +548,22 @@ function AccountModal({
       }
     >
       <div className="grid grid-cols-2 gap-4">
+        <Field label="Bank (card style)" className="col-span-2">
+          <select
+            className="input"
+            value={form.bankStyle}
+            onChange={(e) => {
+              const b = BANKS.find((x) => x.key === e.target.value)
+              // Choosing a bank styles the card and, if no name yet, starts one.
+              setForm({ ...form, bankStyle: e.target.value, name: form.name || (b && b.key !== 'generic' ? `${b.mark} ${form.type === 'card' ? 'Credit Card' : form.type === 'loan' ? 'Loan' : 'Account'}` : form.name) })
+            }}
+          >
+            <option value="">Automatic — match from the account name{detectBank(form.name) ? ` (${detectBank(form.name)!.mark})` : ''}</option>
+            {BANKS.map((b) => <option key={b.key} value={b.key}>{b.name}</option>)}
+          </select>
+        </Field>
         <Field label="Account Name" className="col-span-2">
-          <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Emirates NBD Savings" autoFocus />
+          <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. FAB Salary Account" autoFocus />
         </Field>
         <Field label="Type">
           <select className="input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as AccountType })}>
@@ -564,9 +577,10 @@ function AccountModal({
           <input className="input" value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} placeholder="**** 1234" />
         </Field>
         <Field label="Owner (optional)">
-          <input className="input" value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder="e.g. Thomas, Wife" />
+          <input className="input" list="owner-names" value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })} placeholder="e.g. Thomas, Wife" />
+          <datalist id="owner-names">{people.map((p) => <option key={p.id} value={p.name} />)}</datalist>
         </Field>
-        <Field label="Balance">
+        <Field label={form.type === 'card' || form.type === 'loan' ? 'Amount owed at start' : 'Opening balance'}>
           <input className="input" type="number" value={form.balance} onChange={(e) => setForm({ ...form, balance: e.target.value })} placeholder="0" />
         </Field>
         <Field label="Currency">
@@ -576,6 +590,10 @@ function AccountModal({
         </Field>
         {form.type === 'card' && (
           <>
+            <Field label="Credit limit" className="col-span-2">
+              <input className="input" type="number" min="0" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} placeholder="e.g. 20000" />
+              <p className="text-[11px] text-slate-400 mt-1">Shown as available credit — never counted as money you own.</p>
+            </Field>
             <Field label="Statement closes on">
               <input
                 className="input"
@@ -619,5 +637,74 @@ function AccountModal({
         </Field>
       </div>
     </Modal>
+  )
+}
+
+
+/**
+ * Accounts made before opening balances existed carry an opening figure worked
+ * out from whatever balance was stored. If that stored number had drifted (a
+ * manual edit, a device that was out of date), the drift is baked in — so the
+ * owner is asked to confirm each one. Nothing changes until they choose.
+ */
+function BalanceCheck() {
+  const { accounts, updateAccount } = useStore()
+  const pending = accounts.filter((a) => a.openingConfirmed === false)
+  const [custom, setCustom] = useState<Record<string, string>>({})
+  if (!pending.length) return null
+
+  return (
+    <div className="card p-5 border-amber-200 bg-amber-50/60">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={18} className="text-amber-600 mt-0.5 shrink-0" />
+        <div className="flex-1">
+          <p className="text-[13.5px] font-bold text-amber-900">Check your account balances</p>
+          <p className="text-[12px] text-amber-800 mt-0.5 max-w-3xl">
+            Balances are now worked out as <b>opening balance + your transactions</b>. For each account below, the
+            opening balance implied by what was stored is shown. If it should have been something else (for example
+            AED 0 when you started tracking), correct it and the balance updates. Your transactions are never changed.
+          </p>
+          <div className="mt-3 space-y-2.5">
+            {pending.map((a) => {
+              const opening = a.openingBalance ?? 0
+              const ledger = round2(a.balance - opening)
+              const typed = custom[a.id]
+              const proposed = typed !== undefined && typed !== '' ? Number(typed) : 0
+              return (
+                <div key={a.id} className="rounded-xl bg-white border border-amber-100 p-3.5 flex flex-wrap items-center gap-x-6 gap-y-2">
+                  <div className="min-w-[160px]">
+                    <p className="text-[13px] font-bold text-slate-800">{a.name}</p>
+                    <p className="text-[11px] text-slate-400">{a.type === 'card' || a.type === 'loan' ? 'Owed' : 'Balance'} now: {money(a.balance, a.currency)}</p>
+                  </div>
+                  <div className="text-[12px] text-slate-600">
+                    Implied opening: <b>{money(opening, a.currency)}</b>
+                    <span className="block text-[11px] text-slate-400">transactions add {money(ledger, a.currency)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 ml-auto">
+                    <input
+                      type="number"
+                      className="input h-9 w-32 text-[12px]"
+                      placeholder="True opening"
+                      value={typed ?? ''}
+                      onChange={(e) => setCustom({ ...custom, [a.id]: e.target.value })}
+                    />
+                    <button
+                      className="btn-soft h-9"
+                      onClick={() => updateAccount(a.id, { openingBalance: proposed, openingConfirmed: true })}
+                      title={`Balance becomes ${money(round2(proposed + ledger), a.currency)}`}
+                    >
+                      Apply{typed !== undefined && typed !== '' ? ` (→ ${money(round2(proposed + ledger), a.currency)})` : ' 0 (→ ' + money(round2(ledger), a.currency) + ')'}
+                    </button>
+                    <button className="btn-primary h-9" onClick={() => updateAccount(a.id, { openingConfirmed: true })}>
+                      <Check size={14} /> Keep {money(a.balance, a.currency)}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }

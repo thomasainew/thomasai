@@ -4,15 +4,28 @@ import { useStore } from '@/store/useStore'
 import { Badge, Card, CardHead, Empty, PageHeader, Progress, StatCard, statusTone } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
 import { TransferModal } from '@/components/TransferModal'
+import { TransactionModal } from '@/components/TransactionModal'
+import { loanActivity } from '@/lib/loanActivity'
+import { accountLabel } from '@/lib/accounting'
 import { daysLeft, fmtDate, money, pct, toBase, TODAY } from '@/lib/format'
 import { loanSummary } from '@/lib/selectors'
-import type { Currency, Loan } from '@/types'
+import type { Currency, Loan, Transaction, Transfer } from '@/types'
 
 export default function Loans() {
-  const { loans, addLoan, updateLoan, removeLoan } = useStore()
+  const { loans, accounts, transactions, transfers, addLoan, updateLoan, removeLoan, addTransfer, removeTransfer, removeTransaction } =
+    useStore()
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Loan | null>(null)
   const [payFor, setPayFor] = useState<Loan | null>(null)
+  const [activityFor, setActivityFor] = useState<string>('')
+  const [editTxn, setEditTxn] = useState<Transaction | null>(null)
+  const [editTransfer, setEditTransfer] = useState<Transfer | null>(null)
+
+  const activityLoan = loans.find((l) => l.id === activityFor) ?? loans[0]
+  const activity = useMemo(
+    () => (activityLoan ? loanActivity(activityLoan, accounts, loans, transactions, transfers) : []),
+    [activityLoan, accounts, loans, transactions, transfers],
+  )
 
   const s = useMemo(() => loanSummary(loans), [loans])
   const totalPrincipal = s.active.reduce((a, l) => a + toBase(l.principal, l.currency), 0)
@@ -119,6 +132,78 @@ export default function Loans() {
         </div>
       </Card>
 
+      {activityLoan && (
+        <Card>
+          <CardHead
+            title="Loan Activity"
+            sub="Borrowing, spending of borrowed money, and repayments — read straight from your records, so nothing is entered twice"
+            right={
+              <select className="input h-9 w-52 text-[12px]" value={activityLoan.id} onChange={(e) => setActivityFor(e.target.value)}>
+                {loans.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            }
+          />
+          {!activityLoan.accountId && (
+            <p className="px-5 pb-3 text-[12px] text-amber-700">
+              This loan is not linked to a loan account, so only repayments recorded against it show here. Edit the loan
+              and choose its loan account to see borrowing and loan-funded spending too.
+            </p>
+          )}
+          <div className="overflow-x-auto scroll-thin">
+            <table className="w-full min-w-[820px]">
+              <thead className="bg-slate-50/70">
+                <tr>
+                  <th className="th">Date</th>
+                  <th className="th">Type</th>
+                  <th className="th">Description</th>
+                  <th className="th">Account</th>
+                  <th className="th text-right">Amount</th>
+                  <th className="th text-right">Principal</th>
+                  <th className="th text-right">Interest / fees</th>
+                  <th className="th text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f1f5f9]">
+                {activity.map((a) => (
+                  <tr key={`${a.source.type}-${a.id}`} className="row-hover">
+                    <td className="td text-slate-500 whitespace-nowrap">{fmtDate(a.date)}</td>
+                    <td className="td">
+                      <Badge tone={a.kind === 'Repayment' ? 'green' : a.kind === 'Borrowed' ? 'blue' : 'amber'}>{a.kind}</Badge>
+                    </td>
+                    <td className="td font-semibold text-slate-800">{a.description}</td>
+                    <td className="td text-slate-500">{a.accountName}</td>
+                    <td className="td text-right font-bold tabular-nums">{money(a.amount, a.currency as Currency)}</td>
+                    <td className="td text-right tabular-nums text-slate-500">{a.principal !== undefined ? money(a.principal, a.currency as Currency) : '—'}</td>
+                    <td className="td text-right tabular-nums text-slate-500">{a.interestFees ? money(a.interestFees, a.currency as Currency) : '—'}</td>
+                    <td className="td">
+                      <div className="flex justify-end gap-1">
+                        <button
+                          onClick={() => (a.source.type === 'transaction' ? setEditTxn(a.source.txn) : setEditTransfer(a.source.transfer))}
+                          className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-brand-50 hover:text-brand-600 cursor-pointer"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!window.confirm('Delete this record? Balances and reports update automatically.')) return
+                            if (a.source.type === 'transaction') removeTransaction(a.source.txn.id)
+                            else removeTransfer(a.source.transfer.id)
+                          }}
+                          className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {activity.length === 0 && <Empty text="No activity on this loan yet." />}
+          </div>
+        </Card>
+      )}
+
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
         <Card>
           <CardHead title="Upcoming Payments" sub="Next 3 months" />
@@ -164,8 +249,23 @@ export default function Loans() {
         open={modal}
         onClose={() => setModal(false)}
         editing={editing}
-        onSave={(data) => (editing ? updateLoan(editing.id, data) : addLoan(data))}
+        accounts={accounts}
+        onSave={(data, disburseTo) => {
+          if (editing) updateLoan(editing.id, data)
+          else {
+            addLoan(data)
+            // Optionally record the money arriving — a borrowing, not income.
+            if (data.accountId && disburseTo && data.principal > 0)
+              addTransfer({
+                date: data.startDate ?? TODAY, fromAccountId: data.accountId, toKind: 'account', toId: disburseTo,
+                amount: data.principal, currency: data.currency, purpose: 'Loan drawdown', kind: 'drawdown',
+                notes: `Loan disbursement — ${data.name}`,
+              })
+          }
+        }}
       />
+      <TransactionModal open={editTxn !== null} onClose={() => setEditTxn(null)} type="expense" editing={editTxn} />
+      <TransferModal open={editTransfer !== null} onClose={() => setEditTransfer(null)} editing={editTransfer} />
 
       {/* A loan payment is a transfer out of a real account, so it reduces
           both the loan's outstanding balance and the paying account's
@@ -176,18 +276,22 @@ export default function Loans() {
 }
 
 function LoanModal({
-  open, onClose, editing, onSave,
+  open, onClose, editing, onSave, accounts,
 }: {
   open: boolean
   onClose: () => void
   editing: Loan | null
-  onSave: (l: any) => void
+  accounts: import('@/types').Account[]
+  onSave: (l: any, disburseTo?: string) => void
 }) {
   const blank = {
     name: '', lender: '', principal: '', outstanding: '', emi: '', rate: '', nextPayment: TODAY,
-    currency: 'AED' as Currency, status: 'On Track' as Loan['status'], icon: '🏦',
+    currency: 'AED' as Currency, status: 'On Track' as Loan['status'], icon: '🏦', accountId: '', disburseTo: '',
   }
   const [form, setForm] = useState(blank)
+  const loanAccounts = accounts.filter((a) => a.type === 'loan')
+  const depositAccounts = accounts.filter((a) => a.type === 'bank' || a.type === 'cash')
+  const linked = loanAccounts.find((a) => a.id === form.accountId)
 
   useEffect(() => {
     if (!open) return
@@ -197,6 +301,7 @@ function LoanModal({
             name: editing.name, lender: editing.lender, principal: String(editing.principal),
             outstanding: String(editing.outstanding), emi: String(editing.emi), rate: String(editing.rate),
             nextPayment: editing.nextPayment, currency: editing.currency, status: editing.status, icon: editing.icon,
+            accountId: editing.accountId ?? '', disburseTo: '',
           }
         : blank,
     )
@@ -207,7 +312,10 @@ function LoanModal({
     if (!form.name.trim()) return
     onSave({
       name: form.name.trim(),
-      lender: form.lender.trim() || '—',
+      // The lender IS the loan account when one is chosen.
+      lender: linked ? linked.name : form.lender.trim() || '—',
+      accountId: form.accountId || undefined,
+      startDate: editing?.startDate ?? TODAY,
       principal: Number(form.principal) || 0,
       outstanding: Number(form.outstanding) || 0,
       emi: Number(form.emi) || 0,
@@ -216,7 +324,7 @@ function LoanModal({
       currency: form.currency,
       status: form.status,
       icon: form.icon || '🏦',
-    })
+    }, form.disburseTo || undefined)
     onClose()
   }
 
@@ -236,10 +344,38 @@ function LoanModal({
         <Field label="Loan Name" className="col-span-2">
           <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Personal Loan" autoFocus />
         </Field>
-        <Field label="Lender"><input className="input" value={form.lender} onChange={(e) => setForm({ ...form, lender: e.target.value })} placeholder="e.g. FAB" /></Field>
+        <Field label="Lender / loan account" className="col-span-2">
+          <select
+            className="input"
+            value={form.accountId}
+            onChange={(e) => {
+              const a = loanAccounts.find((x) => x.id === e.target.value)
+              setForm({ ...form, accountId: e.target.value, currency: a?.currency ?? form.currency, lender: a ? a.name : form.lender })
+            }}
+          >
+            <option value="">Not linked — type the lender below</option>
+            {loanAccounts.map((a) => (
+              <option key={a.id} value={a.id}>{accountLabel(a)}{a.owner ? ` · ${a.owner}` : ''}</option>
+            ))}
+          </select>
+          <p className="text-[11px] text-slate-400 mt-1">
+            {loanAccounts.length === 0
+              ? 'No loan accounts yet — add one under Accounts → Add Account → Loan Account, then choose it here.'
+              : 'Choose where you borrowed the money. Spending and repayments on that account then appear under this loan automatically.'}
+          </p>
+        </Field>
+        {!form.accountId && (
+          <Field label="Lender" className="col-span-2"><input className="input" value={form.lender} onChange={(e) => setForm({ ...form, lender: e.target.value })} placeholder="e.g. FAB" /></Field>
+        )}
         <Field label="Icon"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} maxLength={2} /></Field>
         <Field label="Principal"><input className="input" type="number" value={form.principal} onChange={(e) => setForm({ ...form, principal: e.target.value })} /></Field>
-        <Field label="Outstanding"><input className="input" type="number" value={form.outstanding} onChange={(e) => setForm({ ...form, outstanding: e.target.value })} /></Field>
+        <Field label="Outstanding">
+          {linked ? (
+            <div className="input flex items-center bg-slate-50 text-slate-600 font-semibold">{money(linked.balance, linked.currency)} · from account</div>
+          ) : (
+            <input className="input" type="number" value={form.outstanding} onChange={(e) => setForm({ ...form, outstanding: e.target.value })} />
+          )}
+        </Field>
         <Field label="Monthly EMI"><input className="input" type="number" value={form.emi} onChange={(e) => setForm({ ...form, emi: e.target.value })} /></Field>
         <Field label="Interest Rate (%)"><input className="input" type="number" value={form.rate} onChange={(e) => setForm({ ...form, rate: e.target.value })} /></Field>
         <Field label="Next Payment"><input className="input" type="date" value={form.nextPayment} onChange={(e) => setForm({ ...form, nextPayment: e.target.value })} /></Field>
@@ -248,6 +384,18 @@ function LoanModal({
             <option>AED</option><option>INR</option><option>USD</option>
           </select>
         </Field>
+        {!editing && linked && (
+          <Field label="Money received into (optional)" className="col-span-2">
+            <select className="input" value={form.disburseTo} onChange={(e) => setForm({ ...form, disburseTo: e.target.value })}>
+              <option value="">Don't record the disbursement</option>
+              {depositAccounts.map((a) => <option key={a.id} value={a.id}>{accountLabel(a)}</option>)}
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Records the principal as borrowed money arriving — the debt goes up and this account goes up, and it is not
+              counted as income. Leave empty if the loan account's opening balance already holds this debt.
+            </p>
+          </Field>
+        )}
         <Field label="Status" className="col-span-2">
           <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Loan['status'] })}>
             <option>On Track</option><option>Due Soon</option><option>Overdue</option><option>Closed</option>

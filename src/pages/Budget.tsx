@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { SmartBudget } from '@/components/SmartBudget'
 import { CopyPlus, Gauge, History, Pencil, PiggyBank, Plus, Target, Trash2, Wallet } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -41,7 +42,7 @@ const blankForm = (currency: Currency = 'AED') => ({
   alertThreshold: 80,
 })
 
-export default function Budget() {
+function CategoryBudgets() {
   const {
     budgets: rawBudgets, transactions, settings, categories, subcategories,
     addBudget, updateBudget, removeBudget, updateSettings, addSubcategory,
@@ -540,6 +541,21 @@ export default function Budget() {
           )}
         </div>
       </Modal>
+    </div>
+  )
+}
+
+/** Two views of the same money: monthly category limits, and the smart plan built from your commitments. */
+export default function Budget() {
+  const [tab, setTab] = useState<'smart' | 'categories'>('smart')
+  return (
+    <div className="space-y-5 max-w-[1600px]">
+      <div className="flex gap-1 border-b border-[#e8edf5]">
+        {([['smart', 'Smart Monthly Budget'], ['categories', 'Category Budgets']] as const).map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)} className={`px-4 h-10 text-[13px] font-semibold border-b-2 transition cursor-pointer ${tab === k ? 'border-brand-600 text-brand-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{label}</button>
+        ))}
+      </div>
+      {tab === 'smart' ? <SmartBudget /> : <CategoryBudgets />}
     </div>
   )
 }

@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, Users, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowUpRight, MoreHorizontal, Pencil, Plus, Trash2, Upload, Users, X } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { PageHeader, StatCard } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
 import { readFileAsDataUrl } from '@/lib/gemini'
 import { resizeImage } from '@/lib/image'
-import { fmtDate, money } from '@/lib/format'
-import { byPerson, inMonth } from '@/lib/selectors'
+import { fmtDate, money, monthLabel, toBase } from '@/lib/format'
+import { CURRENT_MONTH, addMonthsOptions } from '@/lib/selectors'
+import { plEntries, summarise } from '@/lib/ledger'
+import { peopleReport } from '@/lib/peopleStats'
 import type { Person } from '@/types'
-
-/** How this person's spend compares to the biggest spender this month. */
-function spendTier(value: number, maxSpend: number): { label: string; tone: string } {
-  if (value <= 0) return { label: 'LOW SPEND', tone: 'bg-emerald-50 text-emerald-700' }
-  if (maxSpend > 0 && value >= maxSpend * 0.5) return { label: 'HIGH SPEND', tone: 'bg-rose-50 text-rose-700' }
-  return { label: 'MEDIUM SPEND', tone: 'bg-amber-50 text-amber-700' }
-}
 
 const blankForm = () => ({ name: '', relation: '', phone: '', color: '#3b82f6', photo: '' })
 
@@ -25,19 +19,9 @@ export default function People() {
   const [editing, setEditing] = useState<Person | null>(null)
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
-  const [q, setQ] = useState('')
-  const [sort, setSort] = useState<'name' | 'spend'>('name')
   const [form, setForm] = useState(blankForm())
   const [photoError, setPhotoError] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-
-  const spending = useMemo(() => byPerson(transactions), [transactions])
-  const totalSpent = spending.reduce((a, p) => a + p.value, 0)
-  const theyOwe = people.reduce((a, p) => a + p.theyOwe, 0)
-  const iOwe = people.reduce((a, p) => a + p.iOwe, 0)
-  const maxSpend = spending.reduce((m, p) => Math.max(m, p.value), 0)
-
-  const spendOf = (name: string) => spending.find((s) => s.name === name)?.value ?? 0
 
   // Default to "Me" (or the first person) so the detail panel is never empty.
   useEffect(() => {
@@ -60,20 +44,9 @@ export default function People() {
     }
   }, [openMenu])
 
-  const visible = useMemo(() => {
-    const term = q.trim().toLowerCase()
-    let list = people.filter((p) => !term || p.name.toLowerCase().includes(term) || p.relation.toLowerCase().includes(term))
-    list = [...list].sort((a, b) => (sort === 'name' ? a.name.localeCompare(b.name) : spendOf(b.name) - spendOf(a.name)))
-    return list
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [people, q, sort, spending])
+  const visible = useMemo(() => [...people].sort((a, b) => a.name.localeCompare(b.name)), [people])
 
   const selectedPerson = people.find((p) => p.name === selected) ?? null
-  const personTxns = useMemo(
-    () => (selected ? inMonth(transactions).filter((t) => t.person === selected).slice(0, 6) : []),
-    [selected, transactions],
-  )
-
   const openAdd = () => {
     setEditing(null)
     setForm(blankForm())
@@ -170,182 +143,140 @@ export default function People() {
     )
   }
 
+  // ---- period + scope --------------------------------------------------------
+  const { accounts, loans, transfers } = useStore()
+  const [month, setMonth] = useState(CURRENT_MONTH)
+  const [scope, setScope] = useState<'individual' | 'household'>('individual')
+  const range = { from: `${month}-01`, to: `${month}-31` }
+  const names = useMemo(() => people.map((p) => p.name), [people])
+  const report = useMemo(
+    () =>
+      peopleReport(
+        plEntries(transactions, transfers, accounts, range),
+        transfers, accounts, loans, names, (a, c) => toBase(a, c), range,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [transactions, transfers, accounts, loans, names, month],
+  )
+  const statOf = (name: string) => report.people.find((x) => x.name === name)
+  const monthEntries = useMemo(() => plEntries(transactions, transfers, accounts, range), [transactions, transfers, accounts, month]) // eslint-disable-line react-hooks/exhaustive-deps
+  const scoped = scope === 'household' ? monthEntries : monthEntries.filter((e) => (e.person ?? 'Me') === selected)
+  const detail = useMemo(() => summarise(scoped, (a, c) => toBase(a, c)), [scoped])
+  const shownTransfers = scope === 'household' ? report.family : report.family.filter((f) => f.from === selected || f.to === selected)
+  const monthOptions = useMemo(() => addMonthsOptions(12), [])
+
   return (
     <div className="space-y-5 max-w-[1600px]">
       <PageHeader
         title="People"
-        subtitle="See who you spend on, who owes you, and who you owe."
-        actions={<button className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Person</button>}
+        subtitle="Each person's income, expenses and transfers — kept separate, never double-counted."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <select className="input h-10 w-auto" value={month} onChange={(e) => setMonth(e.target.value)} aria-label="Period">
+              {monthOptions.map((m) => <option key={m} value={m}>{monthLabel(m)} {m.slice(0, 4)}</option>)}
+            </select>
+            <div className="flex rounded-lg border border-[#e2e8f0] p-0.5 bg-white">
+              {(['individual', 'household'] as const).map((v) => (
+                <button key={v} onClick={() => setScope(v)} className={`h-9 px-3 rounded-md text-[12.5px] font-semibold cursor-pointer ${scope === v ? 'bg-brand-600 text-white' : 'text-slate-500'}`}>
+                  {v === 'individual' ? 'Individual' : 'Combined household'}
+                </button>
+              ))}
+            </div>
+            <button className="btn-primary" onClick={openAdd}><Plus size={15} /> Add Person</button>
+          </div>
+        }
       />
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="People Tracked" value={String(people.length)} icon={<Users size={20} />} tint="#3b82f6" footer={<span className="text-slate-400">Family, friends & business</span>} />
-        <StatCard label="Spent This Month" value={money(totalSpent)} icon={<ArrowUpRight size={20} />} tint="#f43f5e" footer={<span className="text-slate-400">Across all people</span>} />
-        <StatCard label="They Owe Me" value={money(theyOwe)} icon={<ArrowDownLeft size={20} />} tint="#10b981" footer={<span className="text-slate-400">{people.filter((p) => p.theyOwe > 0).length} people</span>} />
-        <StatCard label="I Owe" value={money(iOwe)} icon={<ArrowUpRight size={20} />} tint="#f59e0b" footer={<span className="text-slate-400">{people.filter((p) => p.iOwe > 0).length} people</span>} />
+        <StatCard label="Household Income" value={money(report.household.income)} icon={<ArrowDownLeft size={20} />} tint="#10b981" footer={<span className="text-slate-400">Earned — excludes transfers and borrowing</span>} />
+        <StatCard label="Household Expenses" value={money(report.household.expenses)} icon={<ArrowUpRight size={20} />} tint="#f43f5e" footer={<span className="text-slate-400">Each record counted once</span>} />
+        <StatCard label="Net Surplus / Deficit" value={money(report.household.net)} icon={<Users size={20} />} tint={report.household.net >= 0 ? '#3b82f6' : '#ef4444'} footer={<span className="text-slate-400">Income − expenses</span>} />
+        <StatCard label="Family Transfers" value={money(report.household.transfersOut)} icon={<ArrowUpRight size={20} />} tint="#8b5cf6" footer={<span className="text-slate-400">Moved between people — not income or expense</span>} />
       </div>
 
-      <div className="grid gap-4 grid-cols-1 xl:grid-cols-12 items-start">
-        <div className="xl:col-span-8 card p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      {/* ---- compact person cards ------------------------------------------ */}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-5 2xl:grid-cols-6">
+        {visible.map((p) => {
+          const st = statOf(p.name)
+          const active = scope === 'individual' && selected === p.name
+          return (
+            <div
+              key={p.id}
+              onClick={() => { setSelected(p.name); setScope('individual') }}
+              className={`card p-3 cursor-pointer transition ${active ? 'ring-2 ring-brand-500 border-brand-200' : 'hover:border-brand-200'}`}
+            >
+              <div className="flex items-center gap-2.5">
+                <Avatar p={p} size={34} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-bold text-slate-800 truncate leading-tight">{p.name}</p>
+                  <p className="text-[10.5px] text-slate-400 truncate">{p.relation}</p>
+                </div>
+                <CardMenu p={p} scope="list" />
+              </div>
+              <div className="mt-2.5 space-y-1 text-[11.5px]">
+                <div className="flex justify-between"><span className="text-slate-400">Income</span><b className="text-emerald-600 tabular-nums">{money(st?.income ?? 0)}</b></div>
+                <div className="flex justify-between"><span className="text-slate-400">Expenses</span><b className="text-rose-600 tabular-nums">{money(st?.expenses ?? 0)}</b></div>
+                <div className="flex justify-between"><span className="text-slate-400">Transfers</span>
+                  <b className="text-violet-600 tabular-nums" title="In / out">+{money(st?.transfersIn ?? 0)} / −{money(st?.transfersOut ?? 0)}</b>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        {people.length === 0 && <p className="col-span-full text-[12.5px] text-slate-400">Add the people in your household to see their figures here.</p>}
+      </div>
+
+      {/* ---- detail ---------------------------------------------------------- */}
+      <div className="card p-5">
+        <div className="flex flex-wrap items-center gap-4 justify-between">
+          <div className="flex items-center gap-3">
+            {scope === 'individual' && selectedPerson ? <Avatar p={selectedPerson} size={46} /> : <span className="h-11 w-11 rounded-full bg-brand-50 text-brand-600 grid place-items-center"><Users size={20} /></span>}
             <div>
-              <h3 className="card-title">People & Balances</h3>
-              <p className="text-[11.5px] text-slate-500 mt-0.5">Your people, their contact details, and latest balances.</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Search people…"
-                  className="h-9 w-44 rounded-xl border border-[#e2e8f0] bg-white pl-8 pr-3 text-[12.5px] outline-none focus:border-brand-300"
-                />
-              </div>
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as 'name' | 'spend')}
-                className="h-9 rounded-xl border border-[#e2e8f0] bg-white px-2.5 text-[12.5px] font-medium text-slate-600 outline-none cursor-pointer"
-              >
-                <option value="name">Sort by name</option>
-                <option value="spend">Sort by spend</option>
-              </select>
+              <p className="text-[16px] font-extrabold text-slate-900">{scope === 'household' ? 'Combined household' : selected ?? '—'}</p>
+              <p className="text-[12px] text-slate-500">{monthLabel(month)} {month.slice(0, 4)}</p>
             </div>
           </div>
-
-          {visible.length === 0 && <p className="py-10 text-center text-[13px] text-slate-400">No people match “{q}”.</p>}
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            {visible.map((p) => {
-              const spend = spendOf(p.name)
-              const tier = spendTier(spend, maxSpend)
-              const isMe = p.name.toLowerCase() === 'me'
-              const isSelected = selected === p.name
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => setSelected(p.name)}
-                  className={`rounded-2xl border p-4 cursor-pointer transition ${
-                    isSelected ? 'border-brand-400 ring-2 ring-brand-500/10 bg-brand-50/30' : 'border-[#eef2f8] hover:border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Avatar p={p} />
-                      <div className="min-w-0">
-                        <p className="text-[13.5px] font-bold text-slate-800 truncate flex items-center gap-1.5">
-                          {p.name}
-                          {isMe && <span className="chip bg-blue-50 text-blue-600 text-[10px] px-1.5 py-0">You</span>}
-                        </p>
-                        <p className="text-[11px] text-slate-400 truncate">{p.relation}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <span className={`chip text-[10px] font-bold ${tier.tone}`}>{tier.label}</span>
-                      <CardMenu p={p} scope="list" />
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setSelected(p.name) }}
-                    className="w-full h-8 rounded-lg bg-brand-50 text-brand-700 text-[11.5px] font-bold hover:bg-brand-100 cursor-pointer mb-3"
-                  >
-                    View Details →
-                  </button>
-
-                  <div className="grid grid-cols-3 gap-2 pt-3 border-t border-[#f1f5f9] text-center">
-                    <div>
-                      <p className="text-[9.5px] text-slate-400">Spent (Month)</p>
-                      <p className="text-[12.5px] font-bold text-slate-800 tabular-nums">{money(spend)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9.5px] text-slate-400">They Owe Me</p>
-                      <p className={`text-[12.5px] font-bold tabular-nums ${p.theyOwe ? 'text-emerald-600' : 'text-slate-800'}`}>{money(p.theyOwe)}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9.5px] text-slate-400">I Owe</p>
-                      <p className={`text-[12.5px] font-bold tabular-nums ${p.iOwe ? 'text-rose-600' : 'text-slate-800'}`}>{money(p.iOwe)}</p>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+          <div className="grid grid-cols-3 gap-6 text-right">
+            <div><p className="text-[10.5px] text-slate-400 uppercase">{scope === 'individual' ? `${selected ?? ''} earned` : 'Earned'}</p><p className="text-[18px] font-extrabold text-emerald-600 tabular-nums">{money(detail.income)}</p></div>
+            <div><p className="text-[10.5px] text-slate-400 uppercase">Spent</p><p className="text-[18px] font-extrabold text-rose-600 tabular-nums">{money(detail.expenses)}</p></div>
+            <div><p className="text-[10.5px] text-slate-400 uppercase">Net</p><p className={`text-[18px] font-extrabold tabular-nums ${detail.net >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>{money(detail.net)}</p></div>
           </div>
         </div>
 
-        <div className="xl:col-span-4 card p-5">
-          {!selectedPerson ? (
-            <p className="py-10 text-center text-[13px] text-slate-400">Select a person to see their details.</p>
-          ) : (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <Avatar p={selectedPerson} size={48} />
-                  <div>
-                    <p className="text-[15px] font-extrabold text-slate-900 flex items-center gap-1.5">
-                      {selectedPerson.name}
-                      {selectedPerson.name.toLowerCase() === 'me' && (
-                        <span className="chip bg-blue-50 text-blue-600 text-[10px] px-1.5 py-0">You</span>
-                      )}
-                    </p>
-                    <p className="text-[11.5px] text-slate-400">{selectedPerson.relation}</p>
-                  </div>
+        <div className="grid gap-5 mt-5 grid-cols-1 lg:grid-cols-3">
+          <div>
+            <p className="text-[12.5px] font-bold text-slate-700 mb-2">Income by source</p>
+            {detail.incomeBySource.length === 0 && <p className="text-[12px] text-slate-400">No income recorded.</p>}
+            {detail.incomeBySource.map((r) => (
+              <div key={r.name} className="flex justify-between text-[12.5px] py-1 border-b border-[#f1f5f9]"><span className="text-slate-600">{r.name}</span><b className="tabular-nums">{money(r.value)}</b></div>
+            ))}
+          </div>
+          <div>
+            <p className="text-[12.5px] font-bold text-slate-700 mb-2">Expenses by category</p>
+            {detail.expenseByCategory.length === 0 && <p className="text-[12px] text-slate-400">No expenses recorded.</p>}
+            {detail.expenseByCategory.slice(0, 8).map((r) => (
+              <div key={r.name} className="flex justify-between text-[12.5px] py-1 border-b border-[#f1f5f9]"><span className="text-slate-600">{r.name}</span><b className="tabular-nums">{money(r.value)}</b></div>
+            ))}
+          </div>
+          <div>
+            <p className="text-[12.5px] font-bold text-slate-700 mb-2">Transfers <span className="font-normal text-slate-400">(not income or expense)</span></p>
+            {shownTransfers.length === 0 && <p className="text-[12px] text-slate-400">No transfers between people this month.</p>}
+            {shownTransfers.map((f) => (
+              <div key={f.id} className="rounded-lg bg-violet-50/60 px-3 py-2 mb-1.5 text-[12px]">
+                <div className="flex justify-between font-semibold text-slate-700">
+                  <span>{f.from} → {f.to}</span><span className="tabular-nums">{money(f.amount, f.currency)}</span>
                 </div>
-                <CardMenu p={selectedPerson} scope="detail" />
+                <p className="text-[11px] text-slate-500">{fmtDate(f.date)} · out of {f.fromAccount}, into {f.toAccount}</p>
               </div>
-
-              <div className="grid grid-cols-3 gap-2 mb-5">
-                <div className="rounded-xl bg-rose-50/60 p-2.5 text-center">
-                  <ArrowUpRight size={13} className="text-rose-500 mx-auto mb-1" />
-                  <p className="text-[9.5px] text-slate-500">Spent This Month</p>
-                  <p className="text-[12.5px] font-bold text-slate-800 tabular-nums">{money(spendOf(selectedPerson.name))}</p>
-                </div>
-                <div className="rounded-xl bg-emerald-50/60 p-2.5 text-center">
-                  <ArrowDownLeft size={13} className="text-emerald-500 mx-auto mb-1" />
-                  <p className="text-[9.5px] text-slate-500">They Owe Me</p>
-                  <p className="text-[12.5px] font-bold text-slate-800 tabular-nums">{money(selectedPerson.theyOwe)}</p>
-                </div>
-                <div className="rounded-xl bg-amber-50/60 p-2.5 text-center">
-                  <ArrowUpRight size={13} className="text-amber-500 mx-auto mb-1" />
-                  <p className="text-[9.5px] text-slate-500">I Owe</p>
-                  <p className="text-[12.5px] font-bold text-slate-800 tabular-nums">{money(selectedPerson.iOwe)}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[12.5px] font-bold text-slate-800">Recent Transactions</p>
-                <Link to="/expenses" className="text-[11.5px] font-semibold text-brand-600 hover:text-brand-700">View All</Link>
-              </div>
-              <div className="space-y-1">
-                {personTxns.length === 0 && <p className="py-6 text-center text-[12px] text-slate-400">No transactions this month.</p>}
-                {personTxns.map((t) => (
-                  <div key={t.id} className="flex items-center gap-3 py-2 border-b border-[#f8fafc] last:border-0">
-                    <span
-                      className="h-8 w-8 rounded-full grid place-items-center shrink-0 text-[13px]"
-                      style={{ background: `${selectedPerson.color}1a` }}
-                    >
-                      {t.type === 'income' ? '💰' : '🧾'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12.5px] font-semibold text-slate-800 truncate">{t.description}</p>
-                      <p className="text-[10.5px] text-slate-400">{fmtDate(t.date)}</p>
-                    </div>
-                    <span className={`text-[12.5px] font-bold tabular-nums shrink-0 ${t.type === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {t.type === 'income' ? '+' : '-'}{money(t.amount, t.currency)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <Link
-                to="/expenses"
-                className="mt-4 h-9 w-full rounded-xl bg-brand-50 text-brand-700 text-[12.5px] font-bold flex items-center justify-center gap-1.5 hover:bg-brand-100 transition"
-              >
-                View All Transactions →
-              </Link>
-            </>
-          )}
+            ))}
+          </div>
         </div>
+        {scope === 'household' && (
+          <p className="text-[11.5px] text-slate-500 mt-4">
+            Combined view adds each person once. A transfer between two of you leaves one account and arrives in the
+            other, so it nets to nothing; borrowed money, loan principal and asset purchases are left out.
+          </p>
+        )}
       </div>
 
       <Modal

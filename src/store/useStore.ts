@@ -10,6 +10,7 @@ import {
 } from '@/data/seed'
 import { convert, setBaseCurrency, setFxRates, uid } from '@/lib/format'
 import { freezeOpenings, withDerivedBalances, withDerivedLoans, transferPrincipal, round2 } from '@/lib/ledger'
+import { methodFor } from '@/lib/accounting'
 import { DEFAULT_CATEGORIES } from '@/data/categories'
 import type { Analysis } from '@/lib/gemini'
 import { hasSupabase } from '@/lib/supabase'
@@ -93,6 +94,16 @@ interface State {
   removeValuation: (id: string) => void
   addGoldRate: (g: Omit<GoldRate, 'id'>) => void
 
+  /**
+   * Record a decision about one item of a month's smart budget — approve,
+   * dismiss, edit, mark paid, or add a manual one. Creates the stored row on
+   * first use; later calls update it (one row per month + source, always).
+   */
+  saveBudgetItem: (month: string, sourceKey: string, patch: Partial<BudgetItem>, base?: Partial<BudgetItem>) => void
+  /** Pay one instalment of a note's schedule: records the expense and marks both records. */
+  payInstallment: (noteId: string, installmentId: string, p: { accountId: string; date: string; amount: number }) => string | null
+  /** Record a payment for a smart-budget item that has no schedule (EMI, bill, renewal, manual). */
+  payBudgetItem: (item: { month: string; sourceKey: string; name: string; category: string; currency: Transaction['currency']; person?: string; sourceKind: BudgetItem['sourceKind']; sourceId?: string }, p: { accountId: string; date: string; amount: number }) => string | null
   addBudgetItem: (b: Omit<BudgetItem, 'id'>) => void
   /** Insert items whose sourceKey is not already in that month — the de-dupe guard. */
   addBudgetItems: (items: Omit<BudgetItem, 'id'>[]) => number
@@ -535,6 +546,50 @@ export const useStore = create<State>()(
       },
 
       // ---------------------------------------------------------- budget items
+      saveBudgetItem: (month, sourceKey, patch, base = {}) => {
+        const cur = get().budgetItems.find((b) => b.month === month && b.sourceKey === sourceKey)
+        if (cur) {
+          set({ budgetItems: patchList(get().budgetItems, cur.id, patch, 'budgetItems') })
+          return
+        }
+        const item: BudgetItem = {
+          id: uid('bi'), month, sourceKey, name: '', category: 'Other', currency: 'AED', sourceKind: 'manual',
+          status: 'Planned', ...base, ...patch,
+        }
+        set({ budgetItems: [...get().budgetItems, item] })
+        push('budgetItems', item)
+      },
+      payInstallment: (noteId, installmentId, p) => {
+        const note = get().notes.find((n) => n.id === noteId)
+        const inst = note?.schedule?.find((i) => i.id === installmentId)
+        const account = get().accounts.find((a) => a.id === p.accountId)
+        if (!note || !inst || !account) return null
+        const txnId = get().addTransaction({
+          type: 'expense', date: p.date, description: `${note.title} — ${inst.label}`,
+          category: note.feeCategory ?? 'Education', accountId: p.accountId, amount: p.amount, currency: inst.currency,
+          person: note.person, method: methodFor(account.type),
+          budgetItemId: `${inst.dueDate.slice(0, 7)}|sched:${noteId}:${installmentId}`,
+        })
+        // The schedule and the transaction now point at each other; the expense exists once.
+        const schedule = (note.schedule ?? []).map((i) =>
+          i.id === installmentId ? { ...i, paidTxnId: txnId, paidAmount: p.amount, paidDate: p.date } : i,
+        )
+        get().updateNote(noteId, { schedule })
+        return txnId
+      },
+      payBudgetItem: (item, p) => {
+        const account = get().accounts.find((a) => a.id === p.accountId)
+        if (!account) return null
+        const txnId = get().addTransaction({
+          type: 'expense', date: p.date, description: item.name, category: item.category, accountId: p.accountId,
+          amount: p.amount, currency: item.currency, person: item.person, method: methodFor(account.type),
+          budgetItemId: `${item.month}|${item.sourceKey}`,
+        })
+        get().saveBudgetItem(item.month, item.sourceKey, { status: 'Paid', txnId, paidAmount: p.amount }, {
+          name: item.name, category: item.category, currency: item.currency, sourceKind: item.sourceKind, sourceId: item.sourceId,
+        })
+        return txnId
+      },
       addBudgetItem: (b) => {
         get().addBudgetItems([b])
       },

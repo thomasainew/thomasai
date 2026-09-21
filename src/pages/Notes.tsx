@@ -1,19 +1,36 @@
-import { useState } from 'react'
-import { CheckCircle2, Clock, ListTodo, Plus, StickyNote, Trash2 } from 'lucide-react'
+import { Fragment, useMemo, useState } from 'react'
+import { CheckCircle2, ChevronDown, ChevronRight, Clock, ListTodo, Pencil, Plus, StickyNote, Trash2 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Empty, PageHeader, Progress, StatCard } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
 import { daysLeft, fmtDate, TODAY } from '@/lib/format'
-import type { Note } from '@/types'
+import { PayModal, ScheduleEditor, ScheduleView } from '@/components/PaymentSchedule'
+import { scheduleSummary } from '@/lib/schedules'
+import type { Currency, Installment, Note } from '@/types'
 
 const CATEGORIES: Note['category'][] = ['Personal', 'Work', 'Family', 'Car', 'Loan']
 
 export default function Notes() {
-  const { notes, addNote, updateNote, removeNote, toggleNote } = useStore()
+  const { notes, people, transactions, addNote, updateNote, removeNote, toggleNote, payInstallment } = useStore()
+  const txnIds = useMemo(() => new Set(transactions.map((t) => t.id)), [transactions])
+  const [editing, setEditing] = useState<Note | null>(null)
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const [payFor, setPayFor] = useState<{ note: Note; inst: Installment } | null>(null)
+  const [schedule, setSchedule] = useState<Installment[]>([])
+  const toggleOpen = (id: string) => setOpen((x) => { const n = new Set(x); n.has(id) ? n.delete(id) : n.add(id); return n })
   const [filter, setFilter] = useState<'All' | Note['category']>('All')
   const [showDone, setShowDone] = useState(true)
   const [modal, setModal] = useState(false)
-  const [form, setForm] = useState({ title: '', category: 'Personal' as Note['category'], dueDate: TODAY, status: 'Pending' as Note['status'] })
+  const blank = { title: '', category: 'Personal' as Note['category'], dueDate: TODAY, status: 'Pending' as Note['status'], person: '', amount: '', currency: 'AED' as Currency, feeCategory: '' }
+  const [form, setForm] = useState(blank)
+
+  const openNew = () => { setEditing(null); setForm(blank); setSchedule([]); setModal(true) }
+  const openEdit = (n: Note) => {
+    setEditing(n)
+    setForm({ title: n.title, category: n.category, dueDate: n.dueDate, status: n.status, person: n.person ?? '', amount: n.amount !== undefined ? String(n.amount) : '', currency: n.currency ?? 'AED', feeCategory: n.feeCategory ?? '' })
+    setSchedule(n.schedule ?? [])
+    setModal(true)
+  }
 
   const list = notes
     .filter((n) => (filter === 'All' ? true : n.category === filter))
@@ -26,8 +43,16 @@ export default function Notes() {
 
   const save = () => {
     if (!form.title.trim()) return
-    addNote({ title: form.title.trim(), category: form.category, dueDate: form.dueDate, status: form.status, done: false })
-    setForm({ title: '', category: 'Personal', dueDate: TODAY, status: 'Pending' })
+    // With a schedule, the note's own date follows its earliest unpaid instalment.
+    const sorted = [...schedule].sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    const payload = {
+      title: form.title.trim(), category: form.category, dueDate: sorted[0]?.dueDate ?? form.dueDate, status: form.status,
+      person: form.person || undefined, amount: Number(form.amount) > 0 && !schedule.length ? Number(form.amount) : undefined,
+      currency: form.currency, feeCategory: form.feeCategory.trim() || undefined,
+      schedule: schedule.filter((i) => i.dueDate && i.amount > 0),
+    }
+    if (editing) updateNote(editing.id, payload)
+    else addNote({ ...payload, done: false })
     setModal(false)
   }
 
@@ -36,7 +61,7 @@ export default function Notes() {
       <PageHeader
         title="Notes & Follow Up"
         subtitle="Reminders, follow-ups and to-dos tied to your money life."
-        actions={<button className="btn-primary" onClick={() => setModal(true)}><Plus size={15} /> Add Note</button>}
+        actions={<button className="btn-primary" onClick={openNew}><Plus size={15} /> Add Note</button>}
       />
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
@@ -85,12 +110,30 @@ export default function Notes() {
             <tbody className="divide-y divide-[#f1f5f9]">
               {list.map((n) => {
                 const dl = daysLeft(n.dueDate)
+                const sum = n.schedule?.length ? scheduleSummary(n, TODAY, (id) => txnIds.has(id)) : null
+                const isOpen = open.has(n.id)
                 return (
-                  <tr key={n.id} className="row-hover">
+                  <Fragment key={n.id}>
+                  <tr className="row-hover">
                     <td className="td">
                       <input type="checkbox" checked={n.done} onChange={() => toggleNote(n.id)} className="accent-brand-600 h-4 w-4 cursor-pointer" />
                     </td>
-                    <td className={`td font-semibold ${n.done ? 'line-through text-slate-400' : 'text-slate-800'}`}>{n.title}</td>
+                    <td className={`td font-semibold ${n.done ? 'line-through text-slate-400' : 'text-slate-800'}`}>
+                      {sum && (
+                        <button onClick={() => toggleOpen(n.id)} className="mr-1.5 text-slate-400 hover:text-slate-600 align-middle cursor-pointer">
+                          {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </button>
+                      )}
+                      {n.title}
+                      {n.person && <span className="chip bg-violet-50 text-violet-700 ml-2">{n.person}</span>}
+                      {sum && (
+                        <span className="block text-[11px] font-normal text-slate-500 mt-0.5">
+                          {sum.list.length} payments · paid {sum.paid.toLocaleString()} of {sum.total.toLocaleString()} {sum.list[0].currency} · outstanding {sum.outstanding.toLocaleString()}
+                          {sum.nextDate ? ` · next ${fmtDate(sum.nextDate)}` : ' · all paid'}
+                          {sum.overdue > 0 && <b className="text-rose-600"> · {sum.overdue} overdue</b>}
+                        </span>
+                      )}
+                    </td>
                     <td className="td text-slate-500">{n.category}</td>
                     <td className="td whitespace-nowrap">
                       <span className="text-slate-600">{fmtDate(n.dueDate)}</span>
@@ -114,11 +157,16 @@ export default function Notes() {
                       </select>
                     </td>
                     <td className="td text-right">
-                      <button onClick={() => removeNote(n.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer ml-auto">
-                        <Trash2 size={13} />
-                      </button>
+                      <div className="flex justify-end gap-1">
+                        <button onClick={() => openEdit(n)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-brand-50 hover:text-brand-600 cursor-pointer"><Pencil size={13} /></button>
+                        <button onClick={() => removeNote(n.id)} className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer"><Trash2 size={13} /></button>
+                      </div>
                     </td>
                   </tr>
+                  {sum && isOpen && (
+                    <tr key={`${n.id}-sched`}><td /><td colSpan={5} className="px-4 pb-4"><ScheduleView note={n} onPay={(inst) => setPayFor({ note: n, inst })} /></td></tr>
+                  )}
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -153,11 +201,12 @@ export default function Notes() {
       <Modal
         open={modal}
         onClose={() => setModal(false)}
-        title="Add Note"
+        title={editing ? 'Edit Note' : 'Add Note'}
+        width="max-w-3xl"
         footer={
           <>
             <button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button>
-            <button className="btn-primary" onClick={save}>Add Note</button>
+            <button className="btn-primary" onClick={save}>{editing ? 'Save Note' : 'Add Note'}</button>
           </>
         }
       >
@@ -171,13 +220,41 @@ export default function Notes() {
             </select>
           </Field>
           <Field label="Due Date"><input className="input" type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} /></Field>
-          <Field label="Status" className="col-span-2">
+          <Field label="Status">
             <select className="input" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as Note['status'] })}>
               <option>Pending</option><option>In Progress</option><option>Planned</option><option>Done</option>
             </select>
           </Field>
+          <Field label="Person (who it is for)">
+            <select className="input" value={form.person} onChange={(e) => setForm({ ...form, person: e.target.value })}>
+              <option value="">— none —</option>
+              {people.map((p) => <option key={p.id}>{p.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Expense category (optional)">
+            <input className="input" value={form.feeCategory} onChange={(e) => setForm({ ...form, feeCategory: e.target.value })} placeholder="e.g. Education" />
+          </Field>
+          {schedule.length === 0 && (
+            <Field label="Single amount (optional)">
+              <div className="flex gap-2">
+                <input className="input flex-1" type="number" min="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} placeholder="e.g. 1250" />
+                <select className="input w-20" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as Currency })}><option>AED</option><option>INR</option><option>USD</option></select>
+              </div>
+            </Field>
+          )}
+          <div className="col-span-2 border-t border-[#eef2f8] pt-4">
+            <ScheduleEditor value={schedule} onChange={setSchedule} defaultCurrency={form.currency} />
+          </div>
         </div>
       </Modal>
+      <PayModal
+        open={payFor !== null}
+        onClose={() => setPayFor(null)}
+        title={payFor ? `${payFor.note.title} — ${payFor.inst.label}` : ''}
+        amount={payFor?.inst.amount}
+        currency={payFor?.inst.currency ?? 'AED'}
+        onConfirm={(p) => payFor && payInstallment(payFor.note.id, payFor.inst.id, p)}
+      />
     </div>
   )
 }

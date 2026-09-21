@@ -17,6 +17,7 @@ import PriceTracker from '@/pages/PriceTracker'
 import Shopping from '@/pages/Shopping'
 import Goals from '@/pages/Goals'
 import Reports from '@/pages/Reports'
+import ProfitLoss from '@/pages/ProfitLoss'
 import CalendarPage from '@/pages/CalendarPage'
 import AIAdvisor from '@/pages/AIAdvisor'
 import TrainAdvisors from '@/pages/TrainAdvisors'
@@ -45,6 +46,7 @@ export default function App() {
             <Route path="shopping" element={<Shopping />} />
             <Route path="goals" element={<Goals />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="profit-loss" element={<ProfitLoss />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="ai-advisor" element={<AIAdvisor />} />
             <Route path="ai-advisor/train" element={<TrainAdvisors />} />
