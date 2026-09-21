@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarDays, Camera, Info, Keyboard, Loader2, Sparkles, Wand2, X } from 'lucide-react'
 import { Modal, Field } from '@/components/ui/Modal'
 import { BillScanModal } from '@/components/BillScanModal'
+import { TransferModal, type TransferPreset } from '@/components/TransferModal'
 import { useStore } from '@/store/useStore'
 import { hasGemini, parseQuickEntry, suggestCategory } from '@/lib/gemini'
 import {
@@ -10,7 +11,9 @@ import {
 import { TODAY, fmtDate } from '@/lib/format'
 import { categoriesOf, findCategoryByName, statementFor, subcategoriesOf } from '@/lib/selectors'
 import { accountLabel, depositAccounts, methodFor, paymentAccounts } from '@/lib/accounting'
-import { WEIGHT_UNITS, type Currency, type Transaction, type TxnType, type WeightUnit } from '@/types'
+import {
+  PACK_UNITS, WEIGHT_UNITS, type Currency, type PackUnit, type Transaction, type TxnKind, type TxnType, type WeightUnit,
+} from '@/types'
 
 /** Used only until the user creates categories of their own. */
 const FALLBACK_INCOME = ['Salary', 'Business Income', 'Investment', 'Other Income']
@@ -35,6 +38,9 @@ export function TransactionModal({
     accounts, people, categories, subcategories, transactions, settings, addTransaction, updateTransaction,
   } = useStore()
   const [scan, setScan] = useState(false)
+  /** Repayments and borrowing are transfers, not transactions — hand off to that form. */
+  const [transferPreset, setTransferPreset] = useState<TransferPreset | null>(null)
+  const [kind, setKind] = useState<TxnKind>('normal')
 
   // ---- natural-language entry
   const [quickOpen, setQuickOpen] = useState(false)
@@ -69,6 +75,11 @@ export function TransactionModal({
     currency: 'AED' as Currency,
     person: people[0]?.name ?? 'Me',
     store: '',
+    brand: '',
+    qty: '',
+    packSize: '',
+    packUnit: 'g' as PackUnit,
+    refundOf: '',
     weight: '',
     weightUnit: 'kg' as WeightUnit,
     notes: '',
@@ -88,6 +99,11 @@ export function TransactionModal({
         currency: editing.currency,
         person: editing.person ?? DEFAULT_PEOPLE[0],
         store: editing.store ?? '',
+        brand: editing.brand ?? '',
+        qty: editing.qty ? String(editing.qty) : '',
+        packSize: editing.packSize ? String(editing.packSize) : '',
+        packUnit: editing.packUnit ?? 'g',
+        refundOf: editing.refundOf ?? '',
         weight: editing.weight ? String(editing.weight) : '',
         weightUnit: editing.weightUnit ?? 'kg',
         notes: editing.notes ?? '',
@@ -95,6 +111,8 @@ export function TransactionModal({
     } else {
       setForm({ ...blank, category: catNames[0] ?? '', accountId: eligibleAccounts[0]?.id ?? '' })
     }
+    setKind(editing?.kind ?? 'normal')
+    setTransferPreset(null)
     touched.current = Boolean(editing)
     setDismissed(false)
     setSuggestion(null)
@@ -222,6 +240,12 @@ export function TransactionModal({
 
   const account = accounts.find((a) => a.id === form.accountId)
   const usingCard = !isIncome && account?.type === 'card'
+  const isRefund = kind === 'refund'
+  // Past purchases a refund could reverse, newest first.
+  const refundable = useMemo(
+    () => transactions.filter((t) => t.type === 'expense' && (t.kind ?? 'normal') === 'normal').slice(0, 40),
+    [transactions],
+  )
   const cycle =
     usingCard && account?.statementDay && account?.dueDay
       ? statementFor(form.date, account.statementDay, account.dueDay)
@@ -233,7 +257,9 @@ export function TransactionModal({
   const submit = () => {
     if (!canSave || !account) return
     const payload = {
-      type,
+      // A refund is money coming back: it credits the account but reverses spending.
+      type: (isRefund ? 'income' : type) as TxnType,
+      kind: kind === 'normal' ? undefined : kind,
       date: form.date,
       description: form.description.trim(),
       category: form.category,
@@ -246,6 +272,11 @@ export function TransactionModal({
       // FINAL ACCOUNTING RULE: the selected account IS the payment source.
       method: methodFor(account.type),
       store: form.store.trim() || undefined,
+      brand: form.brand.trim() || undefined,
+      qty: Number(form.qty) > 0 ? Number(form.qty) : undefined,
+      packSize: Number(form.packSize) > 0 ? Number(form.packSize) : undefined,
+      packUnit: Number(form.packSize) > 0 ? form.packUnit : undefined,
+      refundOf: isRefund && form.refundOf ? form.refundOf : undefined,
       weight: Number(form.weight) > 0 ? Number(form.weight) : undefined,
       weightUnit: Number(form.weight) > 0 ? form.weightUnit : undefined,
       notes: form.notes.trim() || undefined,
@@ -258,10 +289,10 @@ export function TransactionModal({
   return (
     <>
       <Modal
-        open={open && !scan}
+        open={open && !scan && transferPreset === null}
         onClose={onClose}
-        title={`${editing ? 'Edit' : 'Add'} ${isIncome ? 'Income' : 'Expense'}`}
-        subtitle={isIncome ? 'Record money coming in' : 'Record money going out'}
+        title={`${editing ? 'Edit' : 'Add'} ${isRefund ? 'Refund' : kind === 'asset_purchase' ? 'Asset Purchase' : isIncome ? 'Income' : 'Expense'}`}
+        subtitle={isRefund ? 'Money back for an earlier purchase' : isIncome ? 'Record money coming in' : 'Record money going out'}
         width="max-w-2xl"
         footer={
           <>
@@ -269,11 +300,11 @@ export function TransactionModal({
               Cancel
             </button>
             <button
-              className={`${isIncome ? 'btn-green' : 'btn-rose'} disabled:opacity-50`}
+              className={`${isIncome || isRefund ? 'btn-green' : 'btn-rose'} disabled:opacity-50`}
               disabled={!canSave}
               onClick={submit}
             >
-              {editing ? 'Save Changes' : `Add ${isIncome ? 'Income' : 'Expense'}`}
+              {editing ? 'Save Changes' : `Add ${isRefund ? 'Refund' : isIncome ? 'Income' : 'Expense'}`}
             </button>
           </>
         }
@@ -474,9 +505,79 @@ export function TransactionModal({
               <p className="text-[11px] text-slate-400 mt-1">
                 {isIncome
                   ? 'This account\'s balance increases by the amount above.'
-                  : 'This is the payment source — the FINAL ACCOUNTING RULE. Charging a card increases what you owe on it.'}
+                  : account?.type === 'card'
+                    ? 'A card purchase increases what you owe. It is counted as spending once — paying the card later is a repayment, not a second expense.'
+                    : account?.type === 'loan'
+                      ? 'Spending borrowed money: it raises the loan\'s outstanding balance and counts as an expense once.'
+                      : 'This account\'s balance goes down by the amount above.'}
               </p>
             </Field>
+
+            {/* What kind of movement is this? Options follow the chosen account. */}
+            {!isIncome && account && !editing && (
+              <div className="col-span-2 -mt-1 flex flex-wrap items-center gap-2">
+                {(account.type === 'card'
+                  ? [
+                      { k: 'normal', label: 'Purchase' },
+                      { k: 'refund', label: 'Refund' },
+                      { k: 'repay', label: 'Repayment' },
+                    ]
+                  : account.type === 'loan'
+                    ? [
+                        { k: 'normal', label: 'Loan-funded expense' },
+                        { k: 'repay', label: 'Repayment / EMI' },
+                        { k: 'borrow', label: 'Borrow money' },
+                      ]
+                    : [
+                        { k: 'normal', label: 'Expense' },
+                        { k: 'asset_purchase', label: 'Asset purchase' },
+                      ]
+                ).map((o) => {
+                  const active = o.k === 'repay' || o.k === 'borrow' ? false : kind === o.k
+                  return (
+                    <button
+                      key={o.k}
+                      type="button"
+                      onClick={() => {
+                        if (o.k === 'repay')
+                          setTransferPreset(
+                            account.type === 'card'
+                              ? { toAccountId: account.id, purpose: 'Credit card payment' }
+                              : { toAccountId: account.id, purpose: 'Loan payment' },
+                          )
+                        else if (o.k === 'borrow') setTransferPreset({ fromAccountId: account.id, purpose: 'Loan drawdown' })
+                        else setKind(o.k as TxnKind)
+                      }}
+                      className={`chip cursor-pointer transition ${active ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      {o.label}
+                    </button>
+                  )
+                })}
+                {kind === 'asset_purchase' && (
+                  <span className="text-[11px] text-slate-500 basis-full">
+                    Cash leaves the account, but this is kept as an asset — it is not counted as a household expense.
+                  </span>
+                )}
+              </div>
+            )}
+
+            {isRefund && (
+              <Field label="Refund of (optional)" className="col-span-2">
+                <select className="input" value={form.refundOf} onChange={(e) => set('refundOf', e.target.value)}>
+                  <option value="">Not linked to a specific purchase</option>
+                  {refundable.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {fmtDate(t.date)} · {t.description} · {t.amount} {t.currency}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  The money is credited back to this account and the spending in this category is reduced — it is
+                  not counted as income.
+                </p>
+              </Field>
+            )}
           </div>
 
           {/* Credit card statement context */}
@@ -552,6 +653,27 @@ export function TransactionModal({
                 </Field>
               </>
             )}
+            {!isIncome && (
+              <>
+                <Field label="Brand (optional)">
+                  <input className="input" value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="e.g. Almarai" />
+                </Field>
+                <Field label="Quantity (optional)">
+                  <input className="input" type="number" min="0" step="0.01" value={form.qty} onChange={(e) => set('qty', e.target.value)} placeholder="e.g. 2" />
+                </Field>
+                <Field label="Pack size (optional)" className="col-span-2">
+                  <div className="flex gap-2">
+                    <input className="input flex-1" type="number" min="0" step="0.001" value={form.packSize} onChange={(e) => set('packSize', e.target.value)} placeholder="e.g. 500" />
+                    <select className="input w-24" value={form.packUnit} onChange={(e) => set('packUnit', e.target.value)}>
+                      {PACK_UNITS.map((u) => <option key={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Size of ONE pack. Used to compare prices per kg / litre / unit in the Price Tracker.
+                  </p>
+                </Field>
+              </>
+            )}
             <Field label="Person" className={isIncome ? 'col-span-2' : ''}>
               <select className="input" value={form.person} onChange={(e) => set('person', e.target.value)}>
                 {(people.length ? people.map((p) => p.name) : DEFAULT_PEOPLE).map((n) => (
@@ -579,6 +701,15 @@ export function TransactionModal({
         </div>
       </Modal>
 
+      <TransferModal
+        open={transferPreset !== null}
+        onClose={() => {
+          setTransferPreset(null)
+          onClose()
+        }}
+        preset={transferPreset}
+      />
+
       <BillScanModal
         open={scan}
         onClose={() => {
@@ -588,7 +719,6 @@ export function TransactionModal({
         people={people.map((p) => p.name)}
         accounts={accounts}
         transactions={transactions}
-        onAdd={addTransaction}
       />
     </>
   )

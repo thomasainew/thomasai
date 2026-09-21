@@ -66,7 +66,7 @@ export default function Accounts() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `thomas-accounts-${TODAY}.csv`
+    a.download = `cloudbasket360-accounts-${TODAY}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }

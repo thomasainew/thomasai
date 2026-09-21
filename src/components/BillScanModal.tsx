@@ -7,6 +7,7 @@ import { Modal, Field } from '@/components/ui/Modal'
 import { PURCHASE_CATEGORIES, readFileAsDataUrl, scanBill } from '@/lib/gemini'
 import { money, TODAY } from '@/lib/format'
 import { methodFor, round2 } from '@/lib/accounting'
+import { useStore } from '@/store/useStore'
 import { checkPrice, type PriceCheck } from '@/lib/priceHistory'
 import { WEIGHT_UNITS, type Account, type AccountType, type Currency, type Transaction, type WeightUnit } from '@/types'
 
@@ -76,7 +77,6 @@ export function BillScanModal({
   people,
   accounts,
   transactions,
-  onAdd,
 }: {
   open: boolean
   onClose: () => void
@@ -84,9 +84,8 @@ export function BillScanModal({
   accounts: Account[]
   /** Past expenses, used to flag price changes against the same item bought before. */
   transactions: Transaction[]
-  /** Called once per confirmed line item, as an ordinary expense. */
-  onAdd: (t: Omit<Transaction, 'id'>) => void
 }) {
+  const addReceipt = useStore((st) => st.addReceipt)
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -229,29 +228,42 @@ export function BillScanModal({
     })
 
   const confirm = () => {
-    if (!account) return
-    for (const r of chosen) {
-      onAdd({
-        type: 'expense',
-        date: meta.date || TODAY,
+    if (!account || !chosen.length) return
+    const date = meta.date || TODAY
+    const store = meta.store.trim()
+    // ONE receipt, however many lines: it appears once in Expenses and expands
+    // to its items, while every item stays a line of its own for price tracking.
+    addReceipt(
+      {
+        date,
+        store,
+        accountId,
+        person: chosen[0]?.person,
+        // Derived from the chosen Paid from account — every line on one
+        // receipt is one payment, so they all share the same source.
+        method: methodFor(account.type),
+        currency: meta.currency,
+        notes: [meta.invoiceNumber ? `Receipt #${meta.invoiceNumber}` : null, `Scanned from ${file?.name ?? 'a bill'}`]
+          .filter(Boolean)
+          .join(' · '),
+      },
+      chosen.map((r) => ({
+        type: 'expense' as const,
+        date,
         description: r.item.trim(),
         category: r.category,
         accountId,
         amount: lineTotal(r),
         currency: meta.currency,
         person: r.person,
-        // Derived from the chosen Paid from account — every line on one
-        // receipt is one payment, so they all share the same source.
         method: methodFor(account.type),
-        store: meta.store.trim() || undefined,
+        store: store || undefined,
+        brand: r.brand?.trim() || undefined,
         qty: r.saleType === 'weight' ? undefined : r.qty,
         weight: r.saleType === 'weight' ? r.qty : undefined,
         weightUnit: r.saleType === 'weight' ? r.weightUnit : undefined,
-        notes: [r.brand ? `Brand: ${r.brand}` : null, meta.invoiceNumber ? `Receipt #${meta.invoiceNumber}` : null, `Scanned from ${file?.name ?? 'a bill'}`]
-          .filter(Boolean)
-          .join(' · '),
-      })
-    }
+      })),
+    )
     onClose()
   }
 

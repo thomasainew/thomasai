@@ -1,6 +1,6 @@
-# Thomas.ai — Your Money. Smarter Life.
+# CloudBasket 360 — Your Money. Smarter Life.
 
-Personal finance workspace for **Thomas** — money, purchases, expenses, income and accounts in one fast app.
+Personal and family finance workspace — money, purchases, expenses, income and accounts in one fast app.
 
 **Live:** <https://www.cloudbasket.net> (Vercel, deployed from `main`)
 

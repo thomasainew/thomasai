@@ -34,7 +34,7 @@ export default function SettingsPage() {
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `thomas-backup-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = `cloudbasket360-backup-${new Date().toISOString().slice(0, 10)}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -46,7 +46,7 @@ export default function SettingsPage() {
       try {
         data = JSON.parse(String(reader.result))
       } catch {
-        alert('That file could not be read as a Thomas backup.')
+        alert('That file could not be read as a CloudBasket 360 backup.')
         return
       }
       // A stray JSON file would otherwise be merged straight into the store.
@@ -56,7 +56,7 @@ export default function SettingsPage() {
         required.every((k) => k in data) &&
         Array.isArray(data.accounts) && Array.isArray(data.transactions)
       if (!shaped) {
-        alert('That file is not a Thomas backup — expected settings, accounts and transactions.')
+        alert('That file is not a CloudBasket 360 backup — expected settings, accounts and transactions.')
         return
       }
 
@@ -105,7 +105,7 @@ export default function SettingsPage() {
 
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
         <Card>
-          <CardHead title="Profile" sub="How Thomas.ai greets you" right={<User size={16} className="text-slate-400" />} />
+          <CardHead title="Profile" sub="How CloudBasket 360 greets you" right={<User size={16} className="text-slate-400" />} />
           <div className="px-5 pb-5 grid grid-cols-2 gap-4">
             <Field label="Your Name" className="col-span-2">
               <input className="input" value={settings.userName} onChange={(e) => updateSettings({ userName: e.target.value })} />

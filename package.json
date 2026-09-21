@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Thomas.ai - Your Money. Smarter Life. Personal finance, money, purchase, expense, income and account management.",
+  "description": "CloudBasket 360 - Your Money. Smarter Life. Personal finance, money, purchase, expense, income and account management.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

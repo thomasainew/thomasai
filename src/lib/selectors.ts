@@ -13,18 +13,36 @@ export function sumBase(txns: Transaction[]) {
   return txns.reduce((acc, t) => acc + toBase(t.amount, t.currency), 0)
 }
 
+/**
+ * How a transaction counts toward spending, in AED: +amount for a household
+ * expense, -amount for a refund (it reverses spending), 0 for an asset
+ * purchase (cash out, but not household spending) and for income.
+ */
+export function spendValue(t: Transaction) {
+  const k = t.kind ?? 'normal'
+  if (k === 'asset_purchase') return 0
+  if (k === 'refund') return -toBase(t.amount, t.currency)
+  return t.type === 'expense' ? toBase(t.amount, t.currency) : 0
+}
+
+/** Earned income only — refunds and borrowed money are not income. */
+export const isEarned = (t: Transaction) => t.type === 'income' && (t.kind ?? 'normal') === 'normal'
+/** Anything that is spending or a reversal of spending. */
+export const isSpend = (t: Transaction) => t.type === 'expense' ? (t.kind ?? 'normal') !== 'asset_purchase' : t.kind === 'refund'
+
 export function totals(txns: Transaction[], month = CURRENT_MONTH) {
   const m = inMonth(txns, month)
-  const income = sumBase(m.filter((t) => t.type === 'income'))
-  const expenses = sumBase(m.filter((t) => t.type === 'expense'))
+  const income = sumBase(m.filter(isEarned))
+  const expenses = m.reduce((a, t) => a + spendValue(t), 0)
   return { income, expenses, net: income - expenses, count: m.length }
 }
 
 export function byCategory(txns: Transaction[], type: 'income' | 'expense', month = CURRENT_MONTH) {
   const map = new Map<string, number>()
   for (const t of inMonth(txns, month)) {
-    if (t.type !== type) continue
-    map.set(t.category, (map.get(t.category) ?? 0) + toBase(t.amount, t.currency))
+    if (type === 'income' ? !isEarned(t) : !isSpend(t)) continue
+    const v = type === 'income' ? toBase(t.amount, t.currency) : spendValue(t)
+    map.set(t.category, (map.get(t.category) ?? 0) + v)
   }
   return [...map.entries()]
     .map(([name, value]) => ({ name, value }))
@@ -34,9 +52,9 @@ export function byCategory(txns: Transaction[], type: 'income' | 'expense', mont
 export function byPerson(txns: Transaction[], month = CURRENT_MONTH) {
   const map = new Map<string, number>()
   for (const t of inMonth(txns, month)) {
-    if (t.type !== 'expense') continue
+    if (!isSpend(t)) continue
     const key = t.person || 'Me'
-    map.set(key, (map.get(key) ?? 0) + toBase(t.amount, t.currency))
+    map.set(key, (map.get(key) ?? 0) + spendValue(t))
   }
   return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 }
@@ -44,9 +62,9 @@ export function byPerson(txns: Transaction[], month = CURRENT_MONTH) {
 export function byMethod(txns: Transaction[], month = CURRENT_MONTH) {
   const map = new Map<string, number>()
   for (const t of inMonth(txns, month)) {
-    if (t.type !== 'expense') continue
+    if (!isSpend(t)) continue
     const key = t.method || 'Other'
-    map.set(key, (map.get(key) ?? 0) + toBase(t.amount, t.currency))
+    map.set(key, (map.get(key) ?? 0) + spendValue(t))
   }
   return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 }
@@ -54,8 +72,9 @@ export function byMethod(txns: Transaction[], month = CURRENT_MONTH) {
 export function byAccount(txns: Transaction[], type: 'income' | 'expense', accounts: Account[], month = CURRENT_MONTH) {
   const map = new Map<string, number>()
   for (const t of inMonth(txns, month)) {
-    if (t.type !== type) continue
-    map.set(t.accountId, (map.get(t.accountId) ?? 0) + toBase(t.amount, t.currency))
+    if (type === 'income' ? !isEarned(t) : !isSpend(t)) continue
+    const v = type === 'income' ? toBase(t.amount, t.currency) : spendValue(t)
+    map.set(t.accountId, (map.get(t.accountId) ?? 0) + v)
   }
   return [...map.entries()]
     .map(([id, value]) => ({ name: accounts.find((a) => a.id === id)?.name ?? 'Other', value }))
@@ -88,6 +107,7 @@ export function currentMonthLabel(key = CURRENT_MONTH) {
 }
 
 export function accountTotals(accounts: Account[]) {
+  // Card and loan balances are what you OWE (positive). Net treats them as debt.
   const sum = (type: Account['type']) =>
     accounts.filter((a) => a.type === type).reduce((acc, a) => acc + toBase(a.balance, a.currency), 0)
   const bank = sum('bank')
@@ -240,9 +260,9 @@ export function matchBudget<T extends BudgetCategory>(category: string, budgets:
 export function budgetSpend(txns: Transaction[], budgets: BudgetCategory[], month = CURRENT_MONTH) {
   const out = new Map<string, number>(budgets.map((b) => [b.id, 0]))
   for (const t of inMonth(txns, month)) {
-    if (t.type !== 'expense') continue
+    if (!isSpend(t)) continue
     const b = matchBudget(t.category, budgets, t.subcategory)
-    if (b) out.set(b.id, (out.get(b.id) ?? 0) + toBase(t.amount, t.currency))
+    if (b) out.set(b.id, (out.get(b.id) ?? 0) + spendValue(t))
   }
   return out
 }
@@ -270,8 +290,8 @@ export function budgetsWithSpend(txns: Transaction[], budgets: BudgetCategory[],
 /** Expenses in the month that no budget category covers. */
 export function unbudgetedSpend(txns: Transaction[], budgets: BudgetCategory[], month = CURRENT_MONTH) {
   return inMonth(txns, month)
-    .filter((t) => t.type === 'expense' && !matchBudget(t.category, budgets, t.subcategory))
-    .reduce((a, t) => a + toBase(t.amount, t.currency), 0)
+    .filter((t) => isSpend(t) && !matchBudget(t.category, budgets, t.subcategory))
+    .reduce((a, t) => a + spendValue(t), 0)
 }
 
 
@@ -284,9 +304,9 @@ export function unbudgetedSpend(txns: Transaction[], budgets: BudgetCategory[], 
 export function byStore(txns: Transaction[], month = CURRENT_MONTH) {
   const map = new Map<string, number>()
   for (const t of inMonth(txns, month)) {
-    if (t.type !== 'expense') continue
+    if (!isSpend(t)) continue
     const key = (t.store ?? '').trim() || 'Unrecorded'
-    map.set(key, (map.get(key) ?? 0) + toBase(t.amount, t.currency))
+    map.set(key, (map.get(key) ?? 0) + spendValue(t))
   }
   return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
 }
@@ -294,8 +314,8 @@ export function byStore(txns: Transaction[], month = CURRENT_MONTH) {
 /** Every expense in a month, newest first, with its AED value resolved. */
 export function expenseRows(txns: Transaction[], month = CURRENT_MONTH) {
   return inMonth(txns, month)
-    .filter((t) => t.type === 'expense')
-    .map((t) => ({ ...t, aed: toBase(t.amount, t.currency) }))
+    .filter(isSpend)
+    .map((t) => ({ ...t, aed: spendValue(t) }))
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 

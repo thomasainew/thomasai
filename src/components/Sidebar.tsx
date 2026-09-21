@@ -8,6 +8,7 @@ import { useStore } from '@/store/useStore'
 import { docStatus } from '@/lib/selectors'
 import { hasGemini } from '@/lib/gemini'
 import { AskModal } from '@/components/AskModal'
+import { CloudBasketMark } from '@/components/CloudBasketMark'
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: Home, end: true },
@@ -90,13 +91,11 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <aside className="h-full w-[228px] shrink-0 bg-white border-r border-[#e8edf5] flex flex-col">
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-brand-500 to-cyan-400 grid place-items-center text-white font-black text-[16px] shadow-lg shadow-brand-500/25">
-            T
-          </div>
+          <CloudBasketMark className="h-9 w-auto shrink-0" />
           <div className="leading-tight min-w-0">
-            <p className="text-[16px] font-extrabold tracking-tight truncate">
-              <span className="text-slate-900">Thomas</span>
-              <span className="text-brand-600">.ai</span>
+            <p className="text-[15.5px] font-extrabold tracking-tight truncate">
+              <span className="text-slate-900">CloudBasket</span>
+              <span className="text-brand-600"> 360</span>
             </p>
             <p className="text-[9.5px] text-slate-400 font-medium truncate">Your Money. Smarter Life.</p>
           </div>
@@ -147,7 +146,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <button
             onClick={() => setAsk(true)}
             className="group relative rounded-2xl overflow-hidden h-[124px] shadow-md w-full block cursor-pointer text-left"
-            title="Ask Thomas.ai about your money"
+            title="Ask CloudBasket 360 about your money"
           >
             <MountainScene />
             <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-white/20 backdrop-blur px-2 py-0.5 text-[9.5px] font-bold text-white group-hover:bg-white/30 transition">

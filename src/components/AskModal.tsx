@@ -62,7 +62,7 @@ export function AskModal({ open, onClose }: { open: boolean; onClose: () => void
     <Modal
       open={open}
       onClose={onClose}
-      title="Ask Thomas.ai"
+      title="Ask CloudBasket 360"
       subtitle="Questions about your own figures, answered from your records"
       width="max-w-2xl"
       footer={

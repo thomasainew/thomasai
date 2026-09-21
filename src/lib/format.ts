@@ -110,3 +110,9 @@ export function greeting(hour = new Date().getHours()) {
 export function uid(prefix = 'id') {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`
 }
+
+/** Replace the conversion rates (into AED). Called once settings are loaded. */
+export function setFxRates(rates: Record<string, number>) {
+  for (const [k, v] of Object.entries(rates)) if (Number.isFinite(v) && v > 0) FX[k] = v
+  FX.AED = 1
+}

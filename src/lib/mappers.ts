@@ -1,6 +1,6 @@
 import type {
-  Account, AdvisorMessage, AdvisorPersona, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person,
-  PriceWatch, Settings, Subcategory, Transaction, Transfer,
+  Account, AdvisorMessage, AdvisorPersona, Asset, AssetValuation, Bill, BudgetCategory, BudgetItem, Category, Doc,
+  Goal, GoldRate, ItemAlias, Loan, Note, Person, PriceWatch, Receipt, Settings, Subcategory, Transaction, Transfer,
 } from '@/types'
 
 /** Every syncable collection in the store, and the table that backs it. */
@@ -20,7 +20,26 @@ export const TABLES = {
   priceWatch: 'price_watch',
   categories: 'categories',
   subcategories: 'subcategories',
+  receipts: 'receipts',
+  itemAliases: 'item_aliases',
+  assets: 'assets',
+  assetValuations: 'asset_valuations',
+  goldRates: 'gold_rates',
+  budgetItems: 'budget_items',
 } as const
+
+/** Tables that only exist once migration 0015 has been run. */
+export const V2_TABLES: Collection[] = ['receipts', 'itemAliases', 'assets', 'assetValuations', 'goldRates', 'budgetItems']
+
+/** Columns added to older tables by 0015 — stripped from writes until it has run. */
+export const V2_COLUMNS: Partial<Record<Collection, string[]>> = {
+  accounts: ['opening_balance', 'opening_confirmed', 'credit_limit', 'bank_style'],
+  transactions: ['kind', 'receipt_id', 'brand', 'pack_size', 'pack_unit', 'refund_of', 'budget_item_id', 'asset_id'],
+  transfers: ['kind', 'interest', 'fees'],
+  loans: ['account_id', 'start_date'],
+  documents: ['storage_path', 'file_name', 'mime_type', 'size_bytes', 'uploaded_at', 'links', 'renewal_cost', 'renewal_currency'],
+  notes: ['schedule', 'person', 'amount', 'currency', 'fee_category'],
+}
 
 export type Collection = keyof typeof TABLES
 
@@ -41,6 +60,8 @@ export const MAPPERS: {
       id: a.id, name: a.name, type: a.type, details: a.details, balance: a.balance,
       currency: a.currency, status: a.status, color: a.color, bank: a.bank ?? null,
       statement_day: a.statementDay ?? null, due_day: a.dueDay ?? null, owner: a.owner ?? null,
+      opening_balance: a.openingBalance ?? null, opening_confirmed: a.openingConfirmed ?? false,
+      credit_limit: a.creditLimit ?? null, bank_style: a.bankStyle ?? null,
     }),
     from: (r): Account => ({
       id: r.id, name: r.name, type: r.type, details: r.details, balance: num(r.balance),
@@ -48,6 +69,10 @@ export const MAPPERS: {
       statementDay: r.statement_day == null ? undefined : num(r.statement_day),
       dueDay: r.due_day == null ? undefined : num(r.due_day),
       owner: r.owner ?? undefined,
+      openingBalance: r.opening_balance == null ? undefined : num(r.opening_balance),
+      openingConfirmed: Boolean(r.opening_confirmed),
+      creditLimit: r.credit_limit == null ? undefined : num(r.credit_limit),
+      bankStyle: r.bank_style ?? undefined,
     }),
   },
 
@@ -59,6 +84,9 @@ export const MAPPERS: {
       store: t.store ?? null, qty: t.qty ?? null, warranty_months: t.warrantyMonths ?? null,
       subcategory: t.subcategory ?? null,
       weight: t.weight ?? null, weight_unit: t.weightUnit ?? null,
+      kind: t.kind ?? 'normal', receipt_id: t.receiptId ?? null, brand: t.brand ?? null,
+      pack_size: t.packSize ?? null, pack_unit: t.packUnit ?? null, refund_of: t.refundOf ?? null,
+      budget_item_id: t.budgetItemId ?? null, asset_id: t.assetId ?? null,
     }),
     from: (r): Transaction => ({
       id: r.id, type: r.type, date: r.date, description: r.description, category: r.category,
@@ -70,6 +98,10 @@ export const MAPPERS: {
       subcategory: r.subcategory ?? undefined,
       weight: r.weight == null ? undefined : num(r.weight),
       weightUnit: r.weight_unit ?? undefined,
+      kind: r.kind ?? 'normal', receiptId: r.receipt_id ?? undefined, brand: r.brand ?? undefined,
+      packSize: r.pack_size == null ? undefined : num(r.pack_size), packUnit: r.pack_unit ?? undefined,
+      refundOf: r.refund_of ?? undefined, budgetItemId: r.budget_item_id ?? undefined,
+      assetId: r.asset_id ?? undefined,
     }),
   },
 
@@ -77,10 +109,12 @@ export const MAPPERS: {
     to: (t: Transfer) => ({
       id: t.id, date: t.date, from_account_id: t.fromAccountId, to_kind: t.toKind, to_id: t.toId,
       amount: t.amount, currency: t.currency, purpose: t.purpose, notes: t.notes ?? null,
+      kind: t.kind ?? 'transfer', interest: t.interest ?? 0, fees: t.fees ?? 0,
     }),
     from: (r): Transfer => ({
       id: r.id, date: r.date, fromAccountId: r.from_account_id, toKind: r.to_kind, toId: r.to_id,
       amount: num(r.amount), currency: r.currency, purpose: r.purpose, notes: r.notes ?? undefined,
+      kind: r.kind ?? 'transfer', interest: num(r.interest), fees: num(r.fees),
     }),
   },
 
@@ -116,12 +150,13 @@ export const MAPPERS: {
     to: (l: Loan) => ({
       id: l.id, name: l.name, lender: l.lender, outstanding: l.outstanding, principal: l.principal,
       emi: l.emi, next_payment: l.nextPayment, currency: l.currency, status: l.status,
-      rate: l.rate, icon: l.icon,
+      rate: l.rate, icon: l.icon, account_id: l.accountId ?? null, start_date: l.startDate ?? null,
     }),
     from: (r): Loan => ({
       id: r.id, name: r.name, lender: r.lender, outstanding: num(r.outstanding),
       principal: num(r.principal), emi: num(r.emi), nextPayment: r.next_payment,
       currency: r.currency, status: r.status, rate: num(r.rate), icon: r.icon,
+      accountId: r.account_id ?? undefined, startDate: r.start_date ?? undefined,
     }),
   },
 
@@ -150,19 +185,32 @@ export const MAPPERS: {
   documents: {
     to: (d: Doc) => ({
       id: d.id, name: d.name, type: d.type, expiry: d.expiry, owner: d.owner, status: d.status, icon: d.icon,
+      storage_path: d.storagePath ?? null, file_name: d.fileName ?? null, mime_type: d.mimeType ?? null,
+      size_bytes: d.sizeBytes ?? null, uploaded_at: d.uploadedAt ?? null, links: d.links ?? [],
+      renewal_cost: d.renewalCost ?? null, renewal_currency: d.renewalCurrency ?? null,
     }),
     from: (r): Doc => ({
       id: r.id, name: r.name, type: r.type, expiry: r.expiry, owner: r.owner, status: r.status, icon: r.icon,
+      storagePath: r.storage_path ?? undefined, fileName: r.file_name ?? undefined, mimeType: r.mime_type ?? undefined,
+      sizeBytes: r.size_bytes == null ? undefined : num(r.size_bytes), uploadedAt: r.uploaded_at ?? undefined,
+      links: Array.isArray(r.links) ? r.links : [],
+      renewalCost: r.renewal_cost == null ? undefined : num(r.renewal_cost),
+      renewalCurrency: r.renewal_currency ?? undefined,
     }),
   },
 
   notes: {
     to: (n: Note) => ({
       id: n.id, title: n.title, category: n.category, due_date: n.dueDate, status: n.status, done: n.done,
+      schedule: n.schedule ?? [], person: n.person ?? null, amount: n.amount ?? null,
+      currency: n.currency ?? null, fee_category: n.feeCategory ?? null,
     }),
     from: (r): Note => ({
       id: r.id, title: r.title, category: r.category, dueDate: r.due_date,
       status: r.status, done: Boolean(r.done),
+      schedule: Array.isArray(r.schedule) ? r.schedule : [], person: r.person ?? undefined,
+      amount: r.amount == null ? undefined : num(r.amount), currency: r.currency ?? undefined,
+      feeCategory: r.fee_category ?? undefined,
     }),
   },
 
@@ -195,6 +243,79 @@ export const MAPPERS: {
     }),
   },
 
+  receipts: {
+    to: (r: Receipt) => ({
+      id: r.id, date: r.date, store: r.store, account_id: r.accountId ?? null, person: r.person ?? null,
+      method: r.method ?? null, currency: r.currency, notes: r.notes ?? null,
+    }),
+    from: (r): Receipt => ({
+      id: r.id, date: r.date, store: r.store ?? '', accountId: r.account_id ?? undefined, person: r.person ?? undefined,
+      method: r.method ?? undefined, currency: r.currency, notes: r.notes ?? undefined,
+    }),
+  },
+
+  itemAliases: {
+    to: (a: ItemAlias) => ({ id: a.id, alias: a.alias, canonical: a.canonical }),
+    from: (r): ItemAlias => ({ id: r.id, alias: r.alias, canonical: r.canonical }),
+  },
+
+  assets: {
+    to: (a: Asset) => ({
+      id: a.id, name: a.name, category: a.category, owner: a.owner ?? null,
+      purchase_date: a.purchaseDate ?? null, purchase_price: a.purchasePrice ?? null, currency: a.currency,
+      current_value: a.currentValue, ownership_pct: a.ownershipPct, linked_loan_id: a.linkedLoanId ?? null,
+      valuation_date: a.valuationDate ?? null, photos: a.photos ?? [], attachments: a.attachments ?? [],
+      notes: a.notes ?? null, meta: a.meta ?? {},
+    }),
+    from: (r): Asset => ({
+      id: r.id, name: r.name, category: r.category, owner: r.owner ?? undefined,
+      purchaseDate: r.purchase_date ?? undefined,
+      purchasePrice: r.purchase_price == null ? undefined : num(r.purchase_price), currency: r.currency,
+      currentValue: num(r.current_value), ownershipPct: num(r.ownership_pct, 100),
+      linkedLoanId: r.linked_loan_id ?? undefined, valuationDate: r.valuation_date ?? undefined,
+      photos: Array.isArray(r.photos) ? r.photos : [], attachments: Array.isArray(r.attachments) ? r.attachments : [],
+      notes: r.notes ?? undefined, meta: r.meta ?? {},
+    }),
+  },
+
+  assetValuations: {
+    to: (v: AssetValuation) => ({
+      id: v.id, asset_id: v.assetId, date: v.date, value: v.value, currency: v.currency,
+      source: v.source, note: v.note ?? null, rate: v.rate ?? null,
+    }),
+    from: (r): AssetValuation => ({
+      id: r.id, assetId: r.asset_id, date: r.date, value: num(r.value), currency: r.currency,
+      source: r.source, note: r.note ?? undefined, rate: r.rate == null ? undefined : num(r.rate),
+    }),
+  },
+
+  goldRates: {
+    to: (g: GoldRate) => ({
+      id: g.id, date: g.date, per_gram_24k: g.perGram24k, currency: g.currency, source: g.source,
+      manual: g.manual, fetched_at: g.fetchedAt,
+    }),
+    from: (r): GoldRate => ({
+      id: r.id, date: r.date, perGram24k: num(r.per_gram_24k), currency: r.currency, source: r.source,
+      manual: Boolean(r.manual), fetchedAt: r.fetched_at,
+    }),
+  },
+
+  budgetItems: {
+    to: (b: BudgetItem) => ({
+      id: b.id, month: b.month, name: b.name, category: b.category, amount: b.amount ?? null, currency: b.currency,
+      due_date: b.dueDate ?? null, person: b.person ?? null, source_kind: b.sourceKind, source_id: b.sourceId ?? null,
+      source_key: b.sourceKey, status: b.status, txn_id: b.txnId ?? null, paid_amount: b.paidAmount ?? null,
+      notes: b.notes ?? null,
+    }),
+    from: (r): BudgetItem => ({
+      id: r.id, month: r.month, name: r.name, category: r.category,
+      amount: r.amount == null ? undefined : num(r.amount), currency: r.currency, dueDate: r.due_date ?? undefined,
+      person: r.person ?? undefined, sourceKind: r.source_kind, sourceId: r.source_id ?? undefined,
+      sourceKey: r.source_key, status: r.status, txnId: r.txn_id ?? undefined,
+      paidAmount: r.paid_amount == null ? undefined : num(r.paid_amount), notes: r.notes ?? undefined,
+    }),
+  },
+
   priceWatch: {
     to: (p: PriceWatch) => ({
       id: p.id, item: p.item, store: p.store, current_price: p.current,
@@ -217,6 +338,7 @@ export const settingsMapper = {
     monthly_budget: s.monthlyBudget,
     period_start: s.periodStart,
     period_end: s.periodEnd,
+    extra: s.extra ?? {},
   }),
   from: (r: Row): Settings => ({
     userName: r.user_name,
@@ -227,5 +349,6 @@ export const settingsMapper = {
     monthlyBudget: num(r.monthly_budget),
     periodStart: r.period_start,
     periodEnd: r.period_end,
+    extra: r.extra && typeof r.extra === 'object' ? r.extra : {},
   }),
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { hasSupabase, supabase } from '@/lib/supabase'
-import { pullAll } from '@/lib/sync'
+import { pullAll, resolveSession } from '@/lib/sync'
 import { SignInScreen } from '@/components/SignInScreen'
 import { useStore } from '@/store/useStore'
 
@@ -10,6 +10,9 @@ type Phase = 'checking' | 'signed-out' | 'loading-data' | 'ready'
 export function AuthGate({ children }: { children: ReactNode }) {
   const setSession = useStore((s) => s.setSession)
   const hydrate = useStore((s) => s.hydrate)
+  const setContext = useStore((s) => s.setContext)
+  const schemaV2 = useStore((s) => s.schemaV2)
+  const [notice, setNotice] = useState<string | null>(null)
   const clearLocalData = useStore((s) => s.clearLocalData)
   const [phase, setPhase] = useState<Phase>(hasSupabase ? 'checking' : 'ready')
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +50,16 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
       setPhase('loading-data')
       try {
+        // Which schema is this database on, and whose data is this login for?
+        const session = await resolveSession(userId)
+        if (cancelled) return
+        if (session.inactive) {
+          loadedFor.current = null
+          setNotice('This account has been switched off by the household owner.')
+          await supabase!.auth.signOut()
+          return
+        }
+        setContext(session)
         const data = await pullAll()
         if (cancelled) return
         hydrate(data)
@@ -75,7 +88,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
       cancelled = true
       sub.subscription.unsubscribe()
     }
-  }, [setSession, hydrate, clearLocalData])
+  }, [setSession, hydrate, clearLocalData, setContext])
 
   if (phase === 'checking' || phase === 'loading-data') {
     return (
@@ -90,10 +103,32 @@ export function AuthGate({ children }: { children: ReactNode }) {
     )
   }
 
-  if (phase === 'signed-out') return <SignInScreen />
+  if (phase === 'signed-out')
+    return (
+      <>
+        <SignInScreen />
+        {notice && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[60] card px-4 py-3 max-w-sm bg-amber-50 border-amber-200 text-[12.5px] font-semibold text-amber-900">
+            {notice}
+          </div>
+        )}
+      </>
+    )
 
   return (
     <>
+      {hasSupabase && !schemaV2 && (
+        <div className="fixed bottom-4 left-4 z-50 card px-4 py-3 max-w-sm bg-brand-50 border-brand-200 flex items-start gap-2.5">
+          <AlertCircle size={16} className="text-brand-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[12.5px] font-bold text-brand-900">Database update needed</p>
+            <p className="text-[11.5px] text-brand-800 mt-0.5">
+              Run <b>supabase/migrations/0015_cloudbasket360_v2.sql</b> in the Supabase SQL Editor to switch on
+              the new features. Until then everything keeps working as before.
+            </p>
+          </div>
+        </div>
+      )}
       {error && (
         <div className="fixed bottom-4 right-4 z-50 card px-4 py-3 max-w-sm bg-amber-50 border-amber-200 flex items-start gap-2.5">
           <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />

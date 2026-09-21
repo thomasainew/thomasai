@@ -1,18 +1,19 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
-  Account, AdvisorMessage, AdvisorPersona, Bill, BudgetCategory, Category, Doc, Goal, Loan, Note, Person,
-  PriceWatch, Settings, Subcategory, Transaction, Transfer,
+  Account, AdvisorMessage, AdvisorPersona, Asset, AssetValuation, Bill, BudgetCategory, BudgetItem, Category, Doc,
+  Goal, GoldRate, HouseholdMember, ItemAlias, Loan, Note, Person, PriceWatch, Receipt, Settings, Subcategory,
+  Transaction, Transfer,
 } from '@/types'
 import {
   ACCOUNTS, BILLS, BUDGETS, DOCUMENTS, GOALS, LOANS, NOTES, PEOPLE, PRICE_WATCH, SETTINGS, TRANSACTIONS,
 } from '@/data/seed'
-import { setBaseCurrency, uid } from '@/lib/format'
-import { accountDelta, round2 } from '@/lib/accounting'
+import { convert, setBaseCurrency, setFxRates, uid } from '@/lib/format'
+import { freezeOpenings, withDerivedBalances, withDerivedLoans, transferPrincipal, round2 } from '@/lib/ledger'
 import { DEFAULT_CATEGORIES } from '@/data/categories'
 import type { Analysis } from '@/lib/gemini'
 import { hasSupabase } from '@/lib/supabase'
-import { deleteRow, upsertRow, upsertSettings, type RemoteData } from '@/lib/sync'
+import { deleteRow, upsertRow, upsertSettings, type RemoteData, type SessionContext } from '@/lib/sync'
 import type { Collection } from '@/lib/mappers'
 
 interface State {
@@ -33,6 +34,18 @@ interface State {
   priceWatch: PriceWatch[]
   categories: Category[]
   subcategories: Subcategory[]
+  receipts: Receipt[]
+  itemAliases: ItemAlias[]
+  assets: Asset[]
+  assetValuations: AssetValuation[]
+  goldRates: GoldRate[]
+  budgetItems: BudgetItem[]
+
+  // ---- household / schema (set at sign-in, never persisted)
+  schemaV2: boolean
+  ownerId: string | null
+  membership: HouseholdMember | null
+  setContext: (c: SessionContext) => void
 
   // ---- cloud session
   // ---- AI spending analysis (cached; regenerated on demand)
@@ -56,13 +69,35 @@ interface State {
 
   updateSettings: (patch: Partial<Settings>) => void
 
-  addTransaction: (t: Omit<Transaction, 'id'>) => void
+  addTransaction: (t: Omit<Transaction, 'id'>) => string
   updateTransaction: (id: string, patch: Partial<Transaction>) => void
   removeTransaction: (id: string) => void
+  /** Save one supermarket receipt: a header plus its item lines, all sharing one receipt id. */
+  addReceipt: (header: Omit<Receipt, 'id'>, lines: Omit<Transaction, 'id' | 'receiptId'>[]) => string
+  updateReceipt: (id: string, patch: Partial<Receipt>) => void
+  removeReceipt: (id: string) => void
 
   /** Double-entry movement between accounts (or into a loan) — never income or expense. */
-  addTransfer: (t: Omit<Transfer, 'id'>) => void
+  addTransfer: (t: Omit<Transfer, 'id'>) => string
+  updateTransfer: (id: string, patch: Partial<Transfer>) => void
   removeTransfer: (id: string) => void
+
+  addItemAlias: (a: Omit<ItemAlias, 'id'>) => void
+  removeItemAlias: (id: string) => void
+
+  addAsset: (a: Omit<Asset, 'id'>, firstValuation?: boolean) => string
+  updateAsset: (id: string, patch: Partial<Asset>) => void
+  removeAsset: (id: string) => void
+  /** Record a new estimated whole-asset value, keeping the history. */
+  addValuation: (v: Omit<AssetValuation, 'id'>) => void
+  removeValuation: (id: string) => void
+  addGoldRate: (g: Omit<GoldRate, 'id'>) => void
+
+  addBudgetItem: (b: Omit<BudgetItem, 'id'>) => void
+  /** Insert items whose sourceKey is not already in that month — the de-dupe guard. */
+  addBudgetItems: (items: Omit<BudgetItem, 'id'>[]) => number
+  updateBudgetItem: (id: string, patch: Partial<BudgetItem>) => void
+  removeBudgetItem: (id: string) => void
 
   addAdvisorMessage: (m: Omit<AdvisorMessage, 'id'>) => void
   clearAdvisorMessages: () => void
@@ -142,6 +177,12 @@ const seedState = () => ({
   priceWatch: PRICE_WATCH,
   categories: [],
   subcategories: [],
+  receipts: [] as Receipt[],
+  itemAliases: [] as ItemAlias[],
+  assets: [] as Asset[],
+  assetValuations: [] as AssetValuation[],
+  goldRates: [] as GoldRate[],
+  budgetItems: [] as BudgetItem[],
 })
 
 // ---------------------------------------------------------------------------
@@ -184,31 +225,72 @@ function patchList<T extends { id: string }>(
   return next
 }
 
-/**
- * Move `delta` onto one account's balance and push the result. Every place
- * that changes an account's balance because of a transaction or transfer
- * goes through here, so "the account balance" and "what actually happened"
- * can never drift apart — see the FINAL ACCOUNTING RULE in the corrections spec.
- */
-function applyAccountDelta(accountId: string, delta: number) {
-  if (!delta) return
-  const accounts = useStore.getState().accounts.map((a) =>
-    a.id === accountId ? { ...a, balance: round2(a.balance + delta) } : a,
-  )
-  useStore.setState({ accounts })
-  push('accounts', accounts.find((a) => a.id === accountId))
+/** May this session write? A read-only family member may not. */
+function canWrite() {
+  const m = useStore.getState().membership
+  return !m || m.canEdit
 }
 
-/** Reduce a loan's outstanding balance by `amount` and push the result. */
-function applyLoanDelta(loanId: string, delta: number) {
-  if (!delta) return
+/**
+ * Re-derive every account balance (and every linked loan's outstanding) from
+ * opening balances plus the ledger, then push whatever changed. Called after
+ * ANY change to transactions, transfers, accounts or loans, so a balance is
+ * always exactly what the records say — never a number nudged up and down.
+ */
+function recompute() {
+  const s = useStore.getState()
+  const accounts = withDerivedBalances(s.accounts, s.transactions, s.transfers, s.loans, convert)
+  const loans = withDerivedLoans(s.loans, accounts, convert)
+
+  const accChanged = accounts.filter((a, i) => a.balance !== s.accounts[i]?.balance)
+  const loanChanged = loans.filter(
+    (l, i) => l.outstanding !== s.loans[i]?.outstanding || l.status !== s.loans[i]?.status,
+  )
+  if (!accChanged.length && !loanChanged.length) return
+
+  useStore.setState({ accounts, loans })
+  if (canWrite()) {
+    accChanged.forEach((a) => push('accounts', a))
+    loanChanged.forEach((l) => push('loans', l))
+  }
+}
+
+/**
+ * Legacy loans that are not linked to a loan account have no ledger to derive
+ * from, so a repayment still lowers their outstanding balance directly.
+ */
+function nudgeLegacyLoan(loanId: string, delta: number) {
+  const loan = useStore.getState().loans.find((l) => l.id === loanId)
+  if (!loan || loan.accountId || !delta) return
+  const outstanding = Math.max(0, round2(loan.outstanding + delta))
   const loans = useStore.getState().loans.map((l) =>
     l.id === loanId
-      ? { ...l, outstanding: Math.max(0, round2(l.outstanding + delta)), status: l.outstanding + delta <= 0 ? ('Closed' as const) : l.status === 'Closed' ? ('On Track' as const) : l.status }
+      ? { ...l, outstanding, status: outstanding <= 0 ? ('Closed' as const) : l.status === 'Closed' ? ('On Track' as const) : l.status }
       : l,
   )
   useStore.setState({ loans })
   push('loans', loans.find((l) => l.id === loanId))
+}
+
+/** A payment that was matched to a budget item stops counting when its transaction is deleted. */
+function unlinkBudgetPayment(txnId: string) {
+  const s = useStore.getState()
+  const hit = s.budgetItems.filter((b) => b.txnId === txnId)
+  if (hit.length) {
+    const budgetItems = s.budgetItems.map((b) => (b.txnId === txnId ? { ...b, txnId: undefined, paidAmount: undefined, status: 'Planned' as const } : b))
+    useStore.setState({ budgetItems })
+    hit.forEach((b) => push('budgetItems', budgetItems.find((x) => x.id === b.id)))
+  }
+  const notes = s.notes.map((n) =>
+    n.schedule?.some((i) => i.paidTxnId === txnId)
+      ? { ...n, schedule: n.schedule.map((i) => (i.paidTxnId === txnId ? { ...i, paidTxnId: undefined, paidAmount: undefined, paidDate: undefined } : i)) }
+      : n,
+  )
+  const changed = notes.filter((n, i) => n !== s.notes[i])
+  if (changed.length) {
+    useStore.setState({ notes })
+    changed.forEach((n) => push('notes', n))
+  }
 }
 
 export const useStore = create<State>()(
@@ -229,18 +311,41 @@ export const useStore = create<State>()(
       syncError: null,
       lastSynced: null,
 
+      schemaV2: false,
+      ownerId: null,
+      membership: null,
+      setContext: (c) => set({ schemaV2: c.schemaV2, ownerId: c.ownerId, membership: c.membership }),
+
       setSession: (userId, userEmail) => set({ userId, userEmail }),
       hydrate: (data) => {
         setBaseCurrency(data.settings.baseCurrency)
+        if (data.settings.extra?.fx?.rates) setFxRates(data.settings.extra.fx.rates)
+
+        // Accounts made before opening balances existed get one worked out from
+        // their stored balance (see freezeOpenings), then every balance is
+        // re-derived from the ledger — so a stale or drifted number is replaced
+        // by what the transactions actually add up to, once confirmed.
+        const txns = data.transactions
+        const transfers = data.transfers ?? []
+        const frozen = freezeOpenings(data.accounts, txns, transfers, data.loans, convert)
+        const accounts = withDerivedBalances(frozen, txns, transfers, data.loans, convert)
+        const loans = withDerivedLoans(data.loans, accounts, convert)
+
         set({
           settings: data.settings,
-          accounts: data.accounts,
+          accounts,
           transactions: data.transactions,
-          transfers: data.transfers ?? [],
+          transfers,
+          receipts: data.receipts ?? [],
+          itemAliases: data.itemAliases ?? [],
+          assets: data.assets ?? [],
+          assetValuations: data.assetValuations ?? [],
+          goldRates: data.goldRates ?? [],
+          budgetItems: data.budgetItems ?? [],
           advisorMessages: data.advisorMessages ?? [],
           advisorPersonas: data.advisorPersonas ?? [],
           budgets: data.budgets,
-          loans: data.loans,
+          loans,
           people: data.people,
           bills: data.bills,
           documents: data.documents,
@@ -252,6 +357,23 @@ export const useStore = create<State>()(
           lastSynced: new Date().toISOString(),
           syncError: null,
         })
+
+        // Persist opening balances / corrected balances that differ from what the
+        // database held, so every device converges on the same figures.
+        if (canWrite() && cloudOn()) {
+          accounts.forEach((a, i) => {
+            const before = data.accounts[i]
+            if (
+              a.balance !== before.balance ||
+              a.openingBalance !== before.openingBalance ||
+              a.openingConfirmed !== before.openingConfirmed
+            )
+              push('accounts', a)
+          })
+          loans.forEach((l, i) => {
+            if (l.outstanding !== data.loans[i].outstanding || l.status !== data.loans[i].status) push('loans', l)
+          })
+        }
       },
       setSyncing: (syncing) => set({ syncing }),
       setSyncError: (syncError) => set({ syncError }),
@@ -264,32 +386,70 @@ export const useStore = create<State>()(
       },
 
       // ---------------------------------------------------------- transactions
+      // Balances are derived, so every change below just recomputes them —
+      // editing or deleting a transaction can never leave a balance behind.
       addTransaction: (t) => {
         const item = { ...t, id: uid('t') }
         set({ transactions: [item, ...get().transactions] })
         push('transactions', item)
-        const account = get().accounts.find((a) => a.id === item.accountId)
-        if (account) applyAccountDelta(account.id, accountDelta(item.type, account.type, item.amount))
+        recompute()
+        return item.id
       },
       updateTransaction: (id, patch) => {
-        const before = get().transactions.find((t) => t.id === id)
         set({ transactions: patchList(get().transactions, id, patch, 'transactions') })
-        if (!before) return
-        const after = { ...before, ...patch }
-        // Reverse the old posting, then apply the new one — same account or
-        // not, amount changed or not, this always lands on the right balance.
-        const prevAccount = get().accounts.find((a) => a.id === before.accountId)
-        if (prevAccount) applyAccountDelta(prevAccount.id, -accountDelta(before.type, prevAccount.type, before.amount))
-        const nextAccount = get().accounts.find((a) => a.id === after.accountId)
-        if (nextAccount) applyAccountDelta(nextAccount.id, accountDelta(after.type, nextAccount.type, after.amount))
+        recompute()
       },
       removeTransaction: (id) => {
-        const item = get().transactions.find((t) => t.id === id)
+        const gone = get().transactions.find((t) => t.id === id)
         set({ transactions: get().transactions.filter((t) => t.id !== id) })
         drop('transactions', id)
-        if (!item) return
-        const account = get().accounts.find((a) => a.id === item.accountId)
-        if (account) applyAccountDelta(account.id, -accountDelta(item.type, account.type, item.amount))
+        unlinkBudgetPayment(id)
+        // A receipt with no items left is just an empty header — remove it too.
+        if (gone?.receiptId && !get().transactions.some((t) => t.receiptId === gone.receiptId)) {
+          set({ receipts: get().receipts.filter((r) => r.id !== gone.receiptId) })
+          drop('receipts', gone.receiptId)
+        }
+        recompute()
+      },
+
+      addReceipt: (header, lines) => {
+        const receipt = { ...header, id: uid('rc') }
+        set({ receipts: [receipt, ...get().receipts] })
+        push('receipts', receipt)
+        const items = lines.map((l) => ({ ...l, id: uid('t'), receiptId: receipt.id }))
+        set({ transactions: [...items, ...get().transactions] })
+        items.forEach((i) => push('transactions', i))
+        recompute()
+        return receipt.id
+      },
+      updateReceipt: (id, patch) => {
+        set({ receipts: patchList(get().receipts, id, patch, 'receipts') })
+        // The header's store/date/account/person apply to every line on it.
+        const lineFields: Partial<Transaction> = {}
+        if (patch.store !== undefined) lineFields.store = patch.store
+        if (patch.date !== undefined) lineFields.date = patch.date
+        if (patch.accountId !== undefined) lineFields.accountId = patch.accountId
+        if (patch.person !== undefined) lineFields.person = patch.person
+        if (patch.method !== undefined) lineFields.method = patch.method
+        if (Object.keys(lineFields).length) {
+          const txns = get().transactions.map((t) => (t.receiptId === id ? { ...t, ...lineFields } : t))
+          set({ transactions: txns })
+          txns.filter((t) => t.receiptId === id).forEach((t) => push('transactions', t))
+        }
+        recompute()
+      },
+      removeReceipt: (id) => {
+        const lines = get().transactions.filter((t) => t.receiptId === id)
+        set({
+          receipts: get().receipts.filter((r) => r.id !== id),
+          transactions: get().transactions.filter((t) => t.receiptId !== id),
+        })
+        drop('receipts', id)
+        lines.forEach((t) => {
+          drop('transactions', t.id)
+          unlinkBudgetPayment(t.id)
+        })
+        recompute()
       },
 
       // ----------------------------------------------------------- transfers
@@ -297,32 +457,105 @@ export const useStore = create<State>()(
         const item = { ...t, id: uid('tr') }
         set({ transfers: [item, ...get().transfers] })
         push('transfers', item)
-
-        const from = get().accounts.find((a) => a.id === item.fromAccountId)
-        if (from) applyAccountDelta(from.id, -item.amount)
-
-        if (item.toKind === 'loan') {
-          applyLoanDelta(item.toId, -item.amount)
-        } else {
-          const to = get().accounts.find((a) => a.id === item.toId)
-          if (to) applyAccountDelta(to.id, to.type === 'card' ? -item.amount : item.amount)
-        }
+        if (item.toKind === 'loan') nudgeLegacyLoan(item.toId, -transferPrincipal(item))
+        recompute()
+        return item.id
+      },
+      updateTransfer: (id, patch) => {
+        const before = get().transfers.find((t) => t.id === id)
+        set({ transfers: patchList(get().transfers, id, patch, 'transfers') })
+        const after = get().transfers.find((t) => t.id === id)
+        if (before?.toKind === 'loan') nudgeLegacyLoan(before.toId, transferPrincipal(before))
+        if (after?.toKind === 'loan') nudgeLegacyLoan(after.toId, -transferPrincipal(after))
+        recompute()
       },
       removeTransfer: (id) => {
         const item = get().transfers.find((t) => t.id === id)
         set({ transfers: get().transfers.filter((t) => t.id !== id) })
         drop('transfers', id)
-        if (!item) return
+        if (item?.toKind === 'loan') nudgeLegacyLoan(item.toId, transferPrincipal(item))
+        recompute()
+      },
 
-        const from = get().accounts.find((a) => a.id === item.fromAccountId)
-        if (from) applyAccountDelta(from.id, item.amount)
+      // ---------------------------------------------------------- item aliases
+      addItemAlias: (a) => {
+        const item = { ...a, id: uid('al') }
+        set({ itemAliases: [...get().itemAliases.filter((x) => x.alias !== a.alias), item] })
+        push('itemAliases', item)
+      },
+      removeItemAlias: (id) => {
+        set({ itemAliases: get().itemAliases.filter((x) => x.id !== id) })
+        drop('itemAliases', id)
+      },
 
-        if (item.toKind === 'loan') {
-          applyLoanDelta(item.toId, item.amount)
-        } else {
-          const to = get().accounts.find((a) => a.id === item.toId)
-          if (to) applyAccountDelta(to.id, to.type === 'card' ? item.amount : -item.amount)
+      // ----------------------------------------------------------------- assets
+      addAsset: (a, firstValuation = true) => {
+        const item = { ...a, id: uid('as') }
+        set({ assets: [...get().assets, item] })
+        push('assets', item)
+        if (firstValuation && a.currentValue > 0) {
+          get().addValuation({
+            assetId: item.id, date: a.valuationDate ?? a.purchaseDate ?? new Date().toISOString().slice(0, 10),
+            value: a.currentValue, currency: a.currency, source: 'manual', note: 'Initial value',
+          })
         }
+        return item.id
+      },
+      updateAsset: (id, patch) => set({ assets: patchList(get().assets, id, patch, 'assets') }),
+      removeAsset: (id) => {
+        const vals = get().assetValuations.filter((v) => v.assetId === id)
+        set({
+          assets: get().assets.filter((a) => a.id !== id),
+          assetValuations: get().assetValuations.filter((v) => v.assetId !== id),
+        })
+        drop('assets', id)
+        vals.forEach((v) => drop('assetValuations', v.id))
+      },
+      addValuation: (v) => {
+        const item = { ...v, id: uid('av') }
+        set({ assetValuations: [...get().assetValuations, item] })
+        push('assetValuations', item)
+        // The asset always shows its latest valuation; older ones stay in history.
+        const asset = get().assets.find((a) => a.id === v.assetId)
+        const latest = [...get().assetValuations, item]
+          .filter((x) => x.assetId === v.assetId)
+          .sort((a, b) => b.date.localeCompare(a.date))[0]
+        if (asset && latest && (asset.currentValue !== latest.value || asset.valuationDate !== latest.date)) {
+          set({ assets: patchList(get().assets, asset.id, { currentValue: latest.value, valuationDate: latest.date }, 'assets') })
+        }
+      },
+      removeValuation: (id) => {
+        set({ assetValuations: get().assetValuations.filter((v) => v.id !== id) })
+        drop('assetValuations', id)
+      },
+      addGoldRate: (g) => {
+        const item = { ...g, id: uid('gr') }
+        set({ goldRates: [...get().goldRates, item] })
+        push('goldRates', item)
+      },
+
+      // ---------------------------------------------------------- budget items
+      addBudgetItem: (b) => {
+        get().addBudgetItems([b])
+      },
+      addBudgetItems: (items) => {
+        const have = new Set(get().budgetItems.map((b) => `${b.month}|${b.sourceKey}`))
+        const fresh: BudgetItem[] = []
+        for (const b of items) {
+          const key = `${b.month}|${b.sourceKey}`
+          if (have.has(key)) continue // already in this month: never duplicate
+          have.add(key)
+          fresh.push({ ...b, id: uid('bi') })
+        }
+        if (!fresh.length) return 0
+        set({ budgetItems: [...get().budgetItems, ...fresh] })
+        fresh.forEach((b) => push('budgetItems', b))
+        return fresh.length
+      },
+      updateBudgetItem: (id, patch) => set({ budgetItems: patchList(get().budgetItems, id, patch, 'budgetItems') }),
+      removeBudgetItem: (id) => {
+        set({ budgetItems: get().budgetItems.filter((b) => b.id !== id) })
+        drop('budgetItems', id)
       },
 
       // ------------------------------------------------------- ai advisor chat
@@ -342,11 +575,20 @@ export const useStore = create<State>()(
 
       // -------------------------------------------------------------- accounts
       addAccount: (a) => {
-        const item = { ...a, id: uid('ac') }
+        // What the form calls "balance" is the opening balance; the shown
+        // balance is derived from it plus the ledger from then on.
+        const opening = a.openingBalance ?? a.balance ?? 0
+        const item = { ...a, id: uid('ac'), openingBalance: opening, openingConfirmed: true, balance: opening }
         set({ accounts: [...get().accounts, item] })
         push('accounts', item)
       },
-      updateAccount: (id, patch) => set({ accounts: patchList(get().accounts, id, patch, 'accounts') }),
+      updateAccount: (id, patch) => {
+        // `balance` is never written directly any more — it is derived.
+        const { balance: _ignored, ...rest } = patch
+        void _ignored
+        set({ accounts: patchList(get().accounts, id, rest, 'accounts') })
+        recompute()
+      },
       removeAccount: (id) => {
         set({ accounts: get().accounts.filter((a) => a.id !== id) })
         drop('accounts', id)
@@ -369,8 +611,12 @@ export const useStore = create<State>()(
         const item = { ...l, id: uid('l') }
         set({ loans: [...get().loans, item] })
         push('loans', item)
+        recompute()
       },
-      updateLoan: (id, patch) => set({ loans: patchList(get().loans, id, patch, 'loans') }),
+      updateLoan: (id, patch) => {
+        set({ loans: patchList(get().loans, id, patch, 'loans') })
+        recompute()
+      },
       removeLoan: (id) => {
         set({ loans: get().loans.filter((l) => l.id !== id) })
         drop('loans', id)
@@ -525,9 +771,12 @@ export const useStore = create<State>()(
       },
       // Session fields are owned by Supabase auth, never by localStorage.
       partialize: (s) => {
-        const { userId, userEmail, syncing, syncError, lastSynced, analysing, analysisError, ...data } = s
+        const {
+          userId, userEmail, syncing, syncError, lastSynced, analysing, analysisError,
+          schemaV2, ownerId, membership, ...data
+        } = s
         void userId; void userEmail; void syncing; void syncError; void lastSynced
-        void analysing; void analysisError
+        void analysing; void analysisError; void schemaV2; void ownerId; void membership
         return data
       },
     },

@@ -6,6 +6,7 @@ import { useStore } from '@/store/useStore'
 import { Badge, Card, CardHead, Empty, PageHeader, Progress, StatCard } from '@/components/ui/Primitives'
 import { Donut, DonutLegend, PALETTE, SingleBars } from '@/components/charts/Charts'
 import { TransactionModal } from '@/components/TransactionModal'
+import { ExpenseExplorer } from '@/components/ExpenseExplorer'
 import { BillScanModal } from '@/components/BillScanModal'
 import { StatementImportModal } from '@/components/StatementImportModal'
 import { hasGemini } from '@/lib/gemini'
@@ -16,9 +17,10 @@ import {
 } from '@/lib/selectors'
 import type { Transaction } from '@/types'
 
-type Tab = 'overview' | 'category' | 'store' | 'items' | 'warranty'
+type Tab = 'explorer' | 'overview' | 'category' | 'store' | 'items' | 'warranty'
 
 const TABS: { key: Tab; label: string }[] = [
+  { key: 'explorer', label: 'Filter & Print' },
   { key: 'overview', label: 'Overview' },
   { key: 'category', label: 'By Category' },
   { key: 'store', label: 'By Store' },
@@ -27,8 +29,8 @@ const TABS: { key: Tab; label: string }[] = [
 ]
 
 export default function ExpenseReport() {
-  const { transactions, people, accounts, addTransaction, removeTransaction } = useStore()
-  const [tab, setTab] = useState<Tab>('overview')
+  const { transactions, people, accounts, removeTransaction } = useStore()
+  const [tab, setTab] = useState<Tab>('explorer')
   const [month, setMonth] = useState(CURRENT_MONTH)
   const [scan, setScan] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -71,7 +73,7 @@ export default function ExpenseReport() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const a = document.createElement('a')
     a.href = url
-    a.download = `thomas-expenses-${month}.csv`
+    a.download = `cloudbasket360-expenses-${month}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -181,6 +183,8 @@ export default function ExpenseReport() {
           </button>
         ))}
       </div>
+
+      {tab === 'explorer' && <ExpenseExplorer />}
 
       {tab === 'overview' && (
         <div className="grid gap-4 grid-cols-1 xl:grid-cols-12">
@@ -454,7 +458,6 @@ export default function ExpenseReport() {
         people={people.map((p) => p.name)}
         accounts={accounts}
         transactions={transactions}
-        onAdd={addTransaction}
       />
 
       <TransactionModal open={modal} onClose={() => setModal(false)} type="expense" editing={editing} />

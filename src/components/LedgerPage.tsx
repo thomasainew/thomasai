@@ -8,14 +8,20 @@ import { useStore } from '@/store/useStore'
 import { Card, CardHead, PageHeader, Progress, StatCard, Empty } from '@/components/ui/Primitives'
 import { Donut, DonutLegend, SingleBars, PALETTE } from '@/components/charts/Charts'
 import { TransactionModal } from '@/components/TransactionModal'
+import { ReceiptList } from '@/components/ReceiptList'
+import { ReceiptModal } from '@/components/ReceiptModal'
+import { groupReceipts, type ReceiptEntry } from '@/lib/receipts'
 import { fmtDate, money, monthLabel, pct, toBase } from '@/lib/format'
-import { CURRENT_MONTH, PREV_MONTH, byAccount, byCategory, byMethod, currentMonthLabel, inMonth, monthlySeries, seriesRange, totals } from '@/lib/selectors'
+import { CURRENT_MONTH, PREV_MONTH, byAccount, byCategory, byMethod, currentMonthLabel, inMonth, isEarned, isSpend, monthlySeries, seriesRange, spendValue, totals } from '@/lib/selectors'
 import type { Transaction, TxnType } from '@/types'
 
 export function LedgerPage({ type }: { type: TxnType }) {
   const nav = useNavigate()
   const isIncome = type === 'income'
-  const { transactions, accounts, settings, removeTransaction } = useStore()
+  const { transactions, accounts, receipts, settings, removeTransaction, removeReceipt } = useStore()
+  const [receiptModal, setReceiptModal] = useState(false)
+  const [editingReceipt, setEditingReceipt] = useState<ReceiptEntry | null>(null)
+  const [showAll, setShowAll] = useState(false)
   const [tab, setTab] = useState<'overview' | 'category' | 'account' | 'trend'>('overview')
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Transaction | null>(null)
@@ -35,8 +41,12 @@ export function LedgerPage({ type }: { type: TxnType }) {
   const current = isIncome ? t.income : t.expenses
   const previous = isIncome ? prev.income : prev.expenses
   const allTime = useMemo(
-    () => transactions.filter((x) => x.type === type).reduce((a, x) => a + toBase(x.amount, x.currency), 0),
-    [transactions, type],
+    () =>
+      transactions.reduce(
+        (a, x) => a + (isIncome ? (isEarned(x) ? toBase(x.amount, x.currency) : 0) : spendValue(x)),
+        0,
+      ),
+    [transactions, isIncome],
   )
   const delta = previous ? Math.round(((current - previous) / previous) * 100) : 0
   const target = isIncome ? settings.monthlyIncomeTarget : settings.monthlyBudget
@@ -47,16 +57,26 @@ export function LedgerPage({ type }: { type: TxnType }) {
   const rows = useMemo(
     () =>
       transactions
-        .filter((x) => x.type === type)
+        // Income lists earned income only; the expense list also carries refunds
+        // (as negatives) and asset purchases (flagged), never borrowed money.
+        .filter((x) => (isIncome ? isEarned(x) : isSpend(x) || (x.kind ?? 'normal') === 'asset_purchase'))
         .filter((x) =>
           q.trim().length < 2
             ? true
-            : `${x.description} ${x.category}`.toLowerCase().includes(q.trim().toLowerCase()),
+            : `${x.description} ${x.category} ${x.store ?? ''} ${x.brand ?? ''}`.toLowerCase().includes(q.trim().toLowerCase()),
         )
         .sort((a, b) => b.date.localeCompare(a.date)),
-    [transactions, type, q],
+    [transactions, isIncome, q],
   )
-  const monthRows = rows.filter((r) => r.date.startsWith(CURRENT_MONTH))
+  // Expenses are listed one row per receipt; income stays one row per entry.
+  const entries = useMemo(() => groupReceipts(rows, receipts), [rows, receipts])
+  const monthRows = isIncome ? rows.filter((r) => r.date.startsWith(CURRENT_MONTH)) : entries.filter((e) => e.date.startsWith(CURRENT_MONTH))
+  const deleteEntry = (e: ReceiptEntry) => {
+    const what = e.receiptId ? `this receipt and its ${e.items.length} item${e.items.length === 1 ? '' : 's'}` : 'this entry'
+    if (!window.confirm(`Delete ${what}? Account balances and reports update automatically.`)) return
+    if (e.receiptId) removeReceipt(e.receiptId)
+    else removeTransaction(e.items[0].id)
+  }
 
   const accent = isIncome ? '#22c55e' : '#f43f5e'
   const tabs = [
@@ -76,15 +96,22 @@ export function LedgerPage({ type }: { type: TxnType }) {
             : 'Track and manage your spending for a healthier financial life.'
         }
         actions={
-          <button
-            className={isIncome ? 'btn-green' : 'btn-rose'}
-            onClick={() => {
-              setEditing(null)
-              setModal(true)
-            }}
-          >
-            <Plus size={15} /> {isIncome ? 'Add Income' : 'Add Expense'}
-          </button>
+          <div className="flex gap-2">
+            {!isIncome && (
+              <button className="btn-ghost" onClick={() => { setEditingReceipt(null); setReceiptModal(true) }}>
+                <Plus size={15} /> Add Receipt
+              </button>
+            )}
+            <button
+              className={isIncome ? 'btn-green' : 'btn-rose'}
+              onClick={() => {
+                setEditing(null)
+                setModal(true)
+              }}
+            >
+              <Plus size={15} /> {isIncome ? 'Add Income' : 'Add Expense'}
+            </button>
+          </div>
         }
       />
 
@@ -189,7 +216,7 @@ export function LedgerPage({ type }: { type: TxnType }) {
           <div className="grid gap-4 grid-cols-1 xl:grid-cols-12">
             <Card className="xl:col-span-8">
               <CardHead
-                title={isIncome ? 'Recent Income Transactions' : 'Recent Expense Transactions'}
+                title={isIncome ? 'Recent Income Transactions' : 'Expenses by Receipt'}
                 right={
                   <input
                     className="input h-9 w-52 text-[12px]"
@@ -199,7 +226,25 @@ export function LedgerPage({ type }: { type: TxnType }) {
                   />
                 }
               />
-              <div className="overflow-x-auto scroll-thin">
+              {!isIncome && (
+                <>
+                  <ReceiptList
+                    entries={showAll ? entries : entries.slice(0, 20)}
+                    accounts={accounts}
+                    onEditItem={(t) => { setEditing(t); setModal(true) }}
+                    onEditReceipt={(e) => { setEditingReceipt(e); setReceiptModal(true) }}
+                    onDeleteReceipt={deleteEntry}
+                    onDeleteItem={(t) => window.confirm('Delete this item?') && removeTransaction(t.id)}
+                  />
+                  {entries.length === 0 && <Empty text="No expenses yet." />}
+                  {entries.length > 20 && (
+                    <button onClick={() => setShowAll((v) => !v)} className="w-full py-3 text-[12.5px] font-semibold text-brand-600 hover:bg-slate-50 cursor-pointer">
+                      {showAll ? 'Show fewer' : `Show all ${entries.length} entries`}
+                    </button>
+                  )}
+                </>
+              )}
+              <div className={`overflow-x-auto scroll-thin ${isIncome ? '' : 'hidden'}`}>
                 <table className="w-full min-w-[720px]">
                   <thead className="bg-slate-50/70">
                     <tr>
@@ -410,11 +455,14 @@ export function LedgerPage({ type }: { type: TxnType }) {
       )}
 
       <TransactionModal open={modal} onClose={() => setModal(false)} type={type} editing={editing} />
+      <ReceiptModal open={receiptModal} onClose={() => setReceiptModal(false)} editing={editingReceipt} />
     </div>
   )
 }
 
 /** Total of all transactions of a type, in AED — exported for reuse. */
 export function ledgerTotal(txns: Transaction[], type: TxnType) {
-  return inMonth(txns).filter((t) => t.type === type).reduce((a, t) => a + toBase(t.amount, t.currency), 0)
+  return type === 'income'
+    ? inMonth(txns).filter(isEarned).reduce((a, t) => a + toBase(t.amount, t.currency), 0)
+    : inMonth(txns).reduce((a, t) => a + spendValue(t), 0)
 }

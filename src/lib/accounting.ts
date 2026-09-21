@@ -7,9 +7,9 @@ import type { Account, AccountType, TxnType } from '@/types'
 // Account and Payment Method fields can never disagree with each other again.
 // ============================================================================
 
-/** An expense (or a transfer's source) can be paid from any real money account. */
+/** An expense can be paid from cash/bank, charged to a card, or funded by a loan account. */
 export function paymentAccounts(accounts: Account[]) {
-  return accounts.filter((a) => a.type === 'bank' || a.type === 'cash' || a.type === 'card')
+  return accounts.filter((a) => a.type === 'bank' || a.type === 'cash' || a.type === 'card' || a.type === 'loan')
 }
 
 /** Income only ever lands in a bank or cash account. */
@@ -40,10 +40,8 @@ export function accountDelta(type: TxnType, accountType: AccountType, amount: nu
 export function methodFor(accountType: AccountType) {
   if (accountType === 'cash') return 'Cash'
   if (accountType === 'card') return 'Credit Card'
+  if (accountType === 'loan') return 'Loan'
   return 'Bank Transfer'
 }
 
-/** Round to cents; every balance mutation goes through this to avoid drift. */
-export function round2(n: number) {
-  return Math.round((n + Number.EPSILON) * 100) / 100
-}
+export { round2 } from '@/lib/ledger'

@@ -173,7 +173,7 @@ export default function Shopping() {
 
         <div className="xl:col-span-4 space-y-4">
           <Card>
-            <CardHead title="Thomas Suggests" right={<Sparkles size={16} className="text-brand-500" />} />
+            <CardHead title="Suggestions" right={<Sparkles size={16} className="text-brand-500" />} />
             <div className="px-5 pb-5 space-y-3">
               {suggestions.map((s, i) => (
                 <div key={i} className={`rounded-xl border px-3.5 py-3 ${toneBg[s.tone]}`}>
