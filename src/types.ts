@@ -330,6 +330,8 @@ export interface SettingsExtra {
   futureIncome?: Record<string, number>
   /** Configurable AI "employee" characters — see src/pages/AIEmployees.tsx. */
   aiEmployees?: AIEmployee[]
+  /** User-created quick-fill tags offered in Add Expense, beyond what purchase history already suggests. */
+  customTags?: string[]
 }
 
 export interface Settings {

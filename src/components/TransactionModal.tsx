@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Info, Keyboard, Loader2, Sparkles, Tag, Wand2, X,
+  CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Info, Keyboard, Loader2, Plus, Sparkles, Tag, Wand2, X,
 } from 'lucide-react'
 import { Modal, Field } from '@/components/ui/Modal'
 import { BillScanModal } from '@/components/BillScanModal'
@@ -39,7 +39,7 @@ export function TransactionModal({
   editing?: Transaction | null
 }) {
   const {
-    accounts, people, categories, subcategories, transactions, settings, addTransaction, updateTransaction,
+    accounts, people, categories, subcategories, transactions, settings, addTransaction, updateTransaction, updateSettings,
   } = useStore()
   const [scan, setScan] = useState(false)
   /** Repayments and borrowing are transfers, not transactions — hand off to that form. */
@@ -271,6 +271,14 @@ export function TransactionModal({
     }
     return out
   }, [transactions, isIncome, form.category])
+
+  // Tags you have created by hand, kept apart from history so an item bought
+  // only once still has a shortcut next time.
+  const customTags = settings.extra?.customTags ?? []
+  const addCustomTag = (name: string) => {
+    if (!customTags.includes(name)) updateSettings({ extra: { ...settings.extra, customTags: [...customTags, name] } })
+    setForm((f) => ({ ...f, description: name }))
+  }
 
   const amountValid = Number(form.amount) > 0
   const canSave = form.description.trim().length > 0 && amountValid && Boolean(form.accountId)
@@ -514,12 +522,15 @@ export function TransactionModal({
               </select>
             </Field>
 
-            {tagOptions.length > 0 && (
+            {!isIncome && (
               <Field label="Tag (optional)" className="col-span-2">
                 <TagPicker
                   options={tagOptions}
+                  customTags={customTags}
                   icon={activeCat?.icon}
                   onPick={(t) => setForm((f) => ({ ...f, description: t.description, brand: t.brand ?? f.brand, store: t.store ?? f.store }))}
+                  onPickCustom={(name) => setForm((f) => ({ ...f, description: name }))}
+                  onCreate={addCustomTag}
                 />
               </Field>
             )}
@@ -847,12 +858,25 @@ function AccountPicker({
 
 /** Quick-fill "tag" picks — real items bought before in this category, never fabricated photos. */
 function TagPicker({
-  options, icon, onPick,
+  options, customTags, icon, onPick, onPickCustom, onCreate,
 }: {
   options: Transaction[]
+  customTags: string[]
   icon?: string
   onPick: (t: Transaction) => void
+  onPickCustom: (name: string) => void
+  onCreate: (name: string) => void
 }) {
+  const [adding, setAdding] = useState(false)
+  const [text, setText] = useState('')
+
+  const submit = () => {
+    const name = text.trim()
+    if (name) onCreate(name)
+    setText('')
+    setAdding(false)
+  }
+
   return (
     <ScrollRow>
       {options.map((t) => (
@@ -870,6 +894,46 @@ function TagPicker({
           </span>
         </button>
       ))}
+      {customTags.map((name) => (
+        <button
+          key={name}
+          type="button"
+          onClick={() => onPickCustom(name)}
+          className="shrink-0 w-20 flex flex-col items-center gap-1 rounded-xl border border-[#eef2f8] p-2 hover:border-brand-200 hover:bg-brand-50/30 transition cursor-pointer"
+        >
+          <span className="h-9 w-9 rounded-lg bg-violet-50 grid place-items-center text-[16px] shrink-0">
+            <Tag size={15} className="text-violet-400" />
+          </span>
+          <span className="text-[10.5px] font-semibold text-slate-700 text-center leading-tight line-clamp-2">{name}</span>
+        </button>
+      ))}
+      {adding ? (
+        <div className="shrink-0 w-28 flex items-center gap-1">
+          <input
+            autoFocus
+            className="input h-9 text-[11px] px-2"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onBlur={submit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit()
+              if (e.key === 'Escape') { setText(''); setAdding(false) }
+            }}
+            placeholder="Tag name"
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="shrink-0 w-20 flex flex-col items-center gap-1 rounded-xl border border-dashed border-brand-300 p-2 hover:bg-brand-50/40 transition cursor-pointer"
+        >
+          <span className="h-9 w-9 rounded-lg bg-brand-50 grid place-items-center text-brand-600 shrink-0">
+            <Plus size={16} />
+          </span>
+          <span className="text-[10.5px] font-semibold text-brand-700 text-center leading-tight">Add Tag</span>
+        </button>
+      )}
     </ScrollRow>
   )
 }
