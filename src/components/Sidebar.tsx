@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   BarChart3, Bot, CalendarDays, CreditCard, FileText, FolderTree, Gauge, Gem, Home, Landmark, LayoutDashboard, Scale,
@@ -11,6 +11,10 @@ import { hasGemini } from '@/lib/gemini'
 import { AskModal } from '@/components/AskModal'
 import { canOpen } from '@/lib/access'
 import { CloudBasketMark } from '@/components/CloudBasketMark'
+import { buildSnapshot } from '@/lib/financials'
+import { tierTone } from '@/lib/status'
+import { TODAY, convert, money } from '@/lib/format'
+import type { Currency } from '@/types'
 
 const NAV = [
   { to: '/', label: 'My Financial Status', icon: Home, end: true },
@@ -41,53 +45,9 @@ const NAV = [
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ] as const
 
-/**
- * Dusk mountain scene for the footer card. Drawn inline rather than loaded as
- * a photo so the sidebar needs no network request and no bundled asset.
- */
-function MountainScene() {
-  return (
-    <svg viewBox="0 0 240 150" preserveAspectRatio="xMidYMid slice" className="absolute inset-0 h-full w-full">
-      <defs>
-        <linearGradient id="sb-sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#1e3a8a" />
-          <stop offset="45%" stopColor="#3b6bb8" />
-          <stop offset="100%" stopColor="#7ba6d9" />
-        </linearGradient>
-        <linearGradient id="sb-far" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#4b6fa8" />
-          <stop offset="100%" stopColor="#37527e" />
-        </linearGradient>
-        <linearGradient id="sb-near" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#24365a" />
-          <stop offset="100%" stopColor="#16233d" />
-        </linearGradient>
-        <linearGradient id="sb-shade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#0b1220" stopOpacity="0" />
-          <stop offset="100%" stopColor="#0b1220" stopOpacity="0.88" />
-        </linearGradient>
-      </defs>
-
-      <rect width="240" height="150" fill="url(#sb-sky)" />
-      <circle cx="182" cy="34" r="13" fill="#fde68a" opacity="0.9" />
-      <circle cx="182" cy="34" r="22" fill="#fde68a" opacity="0.16" />
-
-      {/* far ridge */}
-      <path d="M0 92 L34 62 L58 78 L88 48 L120 80 L150 58 L186 86 L214 68 L240 88 L240 150 L0 150 Z" fill="url(#sb-far)" />
-      {/* near ridge */}
-      <path d="M0 116 L30 92 L62 112 L96 82 L128 108 L166 88 L200 112 L240 96 L240 150 L0 150 Z" fill="url(#sb-near)" />
-      {/* snow caps */}
-      <path d="M96 82 L106 90 L100 91 L92 96 L86 92 Z" fill="#e8f0fb" opacity="0.85" />
-      <path d="M166 88 L175 96 L169 97 L162 101 L157 97 Z" fill="#e8f0fb" opacity="0.7" />
-
-      <rect y="60" width="240" height="90" fill="url(#sb-shade)" />
-    </svg>
-  )
-}
-
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const documents = useStore((s) => s.documents)
-  const notes = useStore((s) => s.notes)
+  const s = useStore()
+  const { documents, notes, settings, accounts, transactions, transfers, loans, assets, bills, budgetItems, people } = s
 
   const [ask, setAsk] = useState(false)
 
@@ -95,6 +55,16 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     docs: documents.filter((d) => docStatus(d.expiry) !== 'Valid').length,
     notes: notes.filter((n) => !n.done && n.status === 'Pending').length,
   }
+
+  const reporting = settings.baseCurrency
+  const toReport = (a: number, c: Currency) => convert(a, c, reporting)
+  const show = (v: number) => money(convert(v, reporting, 'AED'))
+  const snap = useMemo(
+    () => buildSnapshot({ today: TODAY, settings, accounts, transactions, transfers, loans, assets, bills, documents, notes, budgetItems, people: people.map((p) => p.name), toReport, fx: convert }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [settings, accounts, transactions, transfers, loans, assets, bills, documents, notes, budgetItems, people],
+  )
+  const { tier, score, tiers } = snap.status
 
   return (
     <aside className="h-full w-[228px] shrink-0 bg-white border-r border-[#e8edf5] flex flex-col">
@@ -151,32 +121,28 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       <div className="p-2.5 pt-0">
-        {hasGemini ? (
-          <button
-            onClick={() => setAsk(true)}
-            className="group relative rounded-2xl overflow-hidden h-[124px] shadow-md w-full block cursor-pointer text-left"
-            title="Ask CloudBasket 360 about your money"
-          >
-            <MountainScene />
-            <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-white/20 backdrop-blur px-2 py-0.5 text-[9.5px] font-bold text-white group-hover:bg-white/30 transition">
-              <Sparkles size={10} /> Ask
-            </span>
-            <span className="absolute inset-x-0 bottom-0 px-3 pb-3 text-center block">
-              <span className="block text-[12px] font-bold text-white leading-tight">Better Tracking</span>
-              <span className="block text-[10px] text-white/75 leading-tight mt-0.5 group-hover:text-white transition">
-                Ask about your money
-              </span>
-            </span>
-          </button>
-        ) : (
-          <div className="relative rounded-2xl overflow-hidden h-[124px] shadow-md">
-            <MountainScene />
-            <div className="absolute inset-x-0 bottom-0 px-3 pb-3 text-center">
-              <p className="text-[12px] font-bold text-white leading-tight">Better Tracking</p>
-              <p className="text-[10px] text-white/75 leading-tight mt-0.5">A Brighter Tomorrow</p>
-            </div>
+        <NavLink
+          to="/"
+          onClick={onNavigate}
+          className={`group relative block rounded-2xl overflow-hidden shadow-md bg-gradient-to-br ${tierTone(tier, tiers)} p-3.5`}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-[9.5px] font-bold text-white/75 uppercase tracking-wide">My Financial Status</p>
+            {hasGemini && (
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAsk(true) }}
+                title="Ask CloudBasket 360 about your money"
+                className="shrink-0 inline-flex items-center gap-1 rounded-full bg-white/20 backdrop-blur px-1.5 py-0.5 text-[9px] font-bold text-white hover:bg-white/30 transition cursor-pointer"
+              >
+                <Sparkles size={9} /> Ask
+              </button>
+            )}
           </div>
-        )}
+          <p className="text-[16px] font-extrabold text-white leading-tight mt-1 truncate">{tier.label}</p>
+          <p className="text-[10.5px] text-white/85 mt-1">
+            {score}/100 · Available {show(snap.availableFunds)}
+          </p>
+        </NavLink>
         <p className="mt-2 text-center text-[9.5px] text-slate-300">v1.0.0</p>
       </div>
 
