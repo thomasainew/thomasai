@@ -68,6 +68,12 @@ export function TransactionModal({
     () => (isIncome ? depositAccounts(accounts) : paymentAccounts(accounts)),
     [accounts, isIncome],
   )
+  // Starred accounts only (Accounts page) — falls back to every eligible account when none are starred.
+  const quickPickIds = settings.extra?.quickPickAccountIds ?? []
+  const pickerAccounts = useMemo(() => {
+    const starred = quickPickIds.length ? eligibleAccounts.filter((a) => quickPickIds.includes(a.id)) : []
+    return starred.length ? starred : eligibleAccounts
+  }, [eligibleAccounts, quickPickIds])
 
   const blank = {
     description: '',
@@ -75,7 +81,7 @@ export function TransactionModal({
     date: TODAY,
     category: catNames[0] ?? '',
     subcategory: '',
-    accountId: eligibleAccounts[0]?.id ?? '',
+    accountId: pickerAccounts[0]?.id ?? '',
     currency: 'AED' as Currency,
     person: people[0]?.name ?? 'Me',
     store: '',
@@ -89,6 +95,14 @@ export function TransactionModal({
     notes: '',
   }
   const [form, setForm] = useState(blank)
+
+  // What the carousel actually shows: the starred set, plus whatever is already
+  // selected (e.g. editing a transaction on an account that isn't starred).
+  const displayAccounts = useMemo(() => {
+    if (pickerAccounts.some((a) => a.id === form.accountId)) return pickerAccounts
+    const selected = eligibleAccounts.find((a) => a.id === form.accountId)
+    return selected ? [selected, ...pickerAccounts] : pickerAccounts
+  }, [pickerAccounts, eligibleAccounts, form.accountId])
 
   useEffect(() => {
     if (!open) return
@@ -113,7 +127,7 @@ export function TransactionModal({
         notes: editing.notes ?? '',
       })
     } else {
-      setForm({ ...blank, category: catNames[0] ?? '', accountId: eligibleAccounts[0]?.id ?? '' })
+      setForm({ ...blank, category: catNames[0] ?? '', accountId: pickerAccounts[0]?.id ?? '' })
     }
     setKind(editing?.kind ?? 'normal')
     setTransferPreset(null)
@@ -254,23 +268,6 @@ export function TransactionModal({
     usingCard && account?.statementDay && account?.dueDay
       ? statementFor(form.date, account.statementDay, account.dueDay)
       : null
-
-  // Quick "tag" picks — real items you have bought before in this category, newest first.
-  // Never fabricated: drawn straight from your own transaction history.
-  const tagOptions = useMemo(() => {
-    if (isIncome || !form.category) return []
-    const seen = new Set<string>()
-    const out: Transaction[] = []
-    for (const t of transactions) {
-      if (t.type !== 'expense' || (t.kind ?? 'normal') !== 'normal' || t.category !== form.category) continue
-      const key = (t.brand || t.description).trim().toLowerCase()
-      if (!key || seen.has(key)) continue
-      seen.add(key)
-      out.push(t)
-      if (out.length >= 10) break
-    }
-    return out
-  }, [transactions, isIncome, form.category])
 
   // Tags you have created by hand, kept apart from history so an item bought
   // only once still has a shortcut next time.
@@ -525,10 +522,7 @@ export function TransactionModal({
             {!isIncome && (
               <Field label="Tag (optional)" className="col-span-2">
                 <TagPicker
-                  options={tagOptions}
                   customTags={customTags}
-                  icon={activeCat?.icon}
-                  onPick={(t) => setForm((f) => ({ ...f, description: t.description, brand: t.brand ?? f.brand, store: t.store ?? f.store }))}
                   onPickCustom={(name) => setForm((f) => ({ ...f, description: name }))}
                   onCreate={addCustomTag}
                 />
@@ -541,7 +535,7 @@ export function TransactionModal({
                   {isIncome ? 'No bank or cash account yet — add one first.' : 'No accounts yet — add one first.'}
                 </p>
               ) : (
-                <AccountPicker accounts={eligibleAccounts} value={form.accountId} onChange={(id) => set('accountId', id)} />
+                <AccountPicker accounts={displayAccounts} value={form.accountId} onChange={(id) => set('accountId', id)} />
               )}
               <p className="text-[11px] text-slate-400 mt-1">
                 {isIncome
@@ -858,12 +852,9 @@ function AccountPicker({
 
 /** Quick-fill "tag" picks — real items bought before in this category, never fabricated photos. */
 function TagPicker({
-  options, customTags, icon, onPick, onPickCustom, onCreate,
+  customTags, onPickCustom, onCreate,
 }: {
-  options: Transaction[]
   customTags: string[]
-  icon?: string
-  onPick: (t: Transaction) => void
   onPickCustom: (name: string) => void
   onCreate: (name: string) => void
 }) {
@@ -879,21 +870,6 @@ function TagPicker({
 
   return (
     <ScrollRow>
-      {options.map((t) => (
-        <button
-          key={t.id}
-          type="button"
-          onClick={() => onPick(t)}
-          className="shrink-0 w-20 flex flex-col items-center gap-1 rounded-xl border border-[#eef2f8] p-2 hover:border-brand-200 hover:bg-brand-50/30 transition cursor-pointer"
-        >
-          <span className="h-9 w-9 rounded-lg bg-slate-50 grid place-items-center text-[16px] shrink-0">
-            {icon || <Tag size={15} className="text-slate-400" />}
-          </span>
-          <span className="text-[10.5px] font-semibold text-slate-700 text-center leading-tight line-clamp-2">
-            {t.brand || t.description}
-          </span>
-        </button>
-      ))}
       {customTags.map((name) => (
         <button
           key={name}

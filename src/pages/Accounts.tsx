@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, Banknote, BarChart3, CreditCard, LayoutGrid,
-  Landmark, List, MoreVertical, Plus, Receipt, Trash2, Wallet, PieChart, Pencil, X,
+  Landmark, List, MoreVertical, Plus, Receipt, Star, Trash2, Wallet, PieChart, Pencil, X,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Badge, PageHeader, StatCard, statusTone } from '@/components/ui/Primitives'
@@ -33,7 +33,10 @@ const NAME_SUFFIX: Record<AccountType, string> = {
 }
 
 export default function Accounts() {
-  const { accounts, transactions, transfers, loans, addAccount, updateAccount, removeAccount, removeTransfer } = useStore()
+  const { accounts, transactions, transfers, loans, settings, updateSettings, addAccount, updateAccount, removeAccount, removeTransfer } = useStore()
+  const quickPickIds = settings.extra?.quickPickAccountIds ?? []
+  const toggleQuickPick = (id: string) =>
+    updateSettings({ extra: { ...settings.extra, quickPickAccountIds: quickPickIds.includes(id) ? quickPickIds.filter((x) => x !== id) : [...quickPickIds, id] } })
   const [tab, setTab] = useState<'all' | AccountType>('all')
   const [view, setView] = useState<'card' | 'list'>('card')
   const [modal, setModal] = useState(false)
@@ -119,7 +122,7 @@ export default function Accounts() {
     <div className="space-y-5 max-w-[1600px]">
       <PageHeader
         title="Accounts"
-        subtitle="Manage all your bank accounts, wallets, cards and loans in one place."
+        subtitle="Manage all your bank accounts, wallets, cards and loans in one place. Star an account to show it in the Add Expense/Income picker — leave none starred to show them all."
         actions={
           <div className="flex gap-2">
             <button className="btn-ghost" onClick={() => { setTransferPreset(null); setTransferOpen(true) }}>
@@ -200,6 +203,13 @@ export default function Accounts() {
                   account={a}
                   footer={
                     <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => toggleQuickPick(a.id)}
+                        title={quickPickIds.includes(a.id) ? 'Shown in Add Expense — click to hide' : 'Show in Add Expense'}
+                        className={`h-8 w-8 shrink-0 grid place-items-center rounded-lg cursor-pointer transition ${quickPickIds.includes(a.id) ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}
+                      >
+                        <Star size={13} fill={quickPickIds.includes(a.id) ? 'currentColor' : 'none'} />
+                      </button>
                       <button
                         onClick={() => setTxnFilterId(txnFilterId === a.id ? null : a.id)}
                         className="flex-1 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11.5px] font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer transition"
@@ -309,6 +319,13 @@ export default function Accounts() {
                       <td className="td"><Badge tone={statusTone(a.status)}>{a.status}</Badge></td>
                       <td className="td">
                         <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => toggleQuickPick(a.id)}
+                            title={quickPickIds.includes(a.id) ? 'Shown in Add Expense — click to hide' : 'Show in Add Expense'}
+                            className={`h-7 w-7 grid place-items-center rounded-lg cursor-pointer transition ${quickPickIds.includes(a.id) ? 'text-amber-500 hover:bg-amber-50' : 'text-slate-300 hover:bg-slate-100 hover:text-slate-500'}`}
+                          >
+                            <Star size={13} fill={quickPickIds.includes(a.id) ? 'currentColor' : 'none'} />
+                          </button>
                           <button
                             onClick={() => { setEditing(a); setModal(true) }}
                             className="h-7 w-7 grid place-items-center rounded-lg text-slate-400 hover:bg-brand-50 hover:text-brand-600 cursor-pointer"

@@ -332,6 +332,8 @@ export interface SettingsExtra {
   aiEmployees?: AIEmployee[]
   /** User-created quick-fill tags offered in Add Expense, beyond what purchase history already suggests. */
   customTags?: string[]
+  /** Account ids to show in the Add Expense/Income "Paid from" picker. Empty/unset = show every eligible account. */
+  quickPickAccountIds?: string[]
 }
 
 export interface Settings {

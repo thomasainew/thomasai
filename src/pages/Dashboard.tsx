@@ -9,7 +9,6 @@ import { Card, CardHead, Badge, Progress, StatCard, ViewAll, statusTone } from '
 import { Donut, DonutLegend, IncomeExpenseBars } from '@/components/charts/Charts'
 import { TransactionModal } from '@/components/TransactionModal'
 import { TransferModal } from '@/components/TransferModal'
-import { FinancialSnapshot } from '@/components/FinancialSnapshot'
 import { TODAY, convert, daysLeft, fmtDate, money, pct } from '@/lib/format'
 import { PREV_MONTH, accountTotals, availableMoney, budgetsWithSpend, byPerson, currentMonthLabel, docStatus, loanSummary, monthPlan, monthlySeries, netPosition, totals } from '@/lib/selectors'
 import type { Currency, TxnType } from '@/types'
@@ -44,8 +43,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-5 max-w-[1600px]">
-      <FinancialSnapshot />
-
       {/* Greeting + AI banner */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <p className="text-[12.5px] text-slate-500">Detailed overview for {currentMonthLabel()}.</p>
