@@ -6,11 +6,24 @@
 // incomplete or out of date.
 import type { StatusTier } from '@/types'
 
+// A trend, not a verdict: four stages of the same journey, not a judgment on
+// who someone is. Every label and threshold below is editable in Settings.
 export const DEFAULT_TIERS: StatusTier[] = [
-  { key: 'poor', label: 'Poor', from: 0 },
-  { key: 'middle', label: 'Middle Class', from: 40 },
-  { key: 'rich', label: 'Rich', from: 70 },
+  { key: 'pressure', label: 'Financial Pressure', from: 0 },
+  { key: 'stable', label: 'Stable', from: 35 },
+  { key: 'growing', label: 'Growing', from: 60 },
+  { key: 'freedom', label: 'Financial Freedom', from: 85 },
 ]
+
+const TONES = ['from-rose-500 to-orange-400', 'from-amber-500 to-yellow-400', 'from-brand-600 to-cyan-500', 'from-emerald-500 to-teal-400']
+
+/** A gradient class for a tier, by its rank among the sorted tier list — not tied to any fixed key set. */
+export function tierTone(tier: StatusTier, tiers: StatusTier[]) {
+  const sorted = [...tiers].sort((a, b) => a.from - b.from)
+  const rank = Math.max(0, sorted.findIndex((t) => t.key === tier.key))
+  const bucket = Math.round((rank / Math.max(1, sorted.length - 1)) * (TONES.length - 1))
+  return TONES[bucket]
+}
 
 export interface StatusInput {
   netWorth: number

@@ -1,12 +1,21 @@
-import type { CardStyle, ThemeColor, ThemeMode } from '@/types'
+import type { CardSize, CardStyle, CategoryColors, StatusColors, ThemeColor, ThemeMode } from '@/types'
 
 export interface ThemeSettings {
   mode: ThemeMode
   color: ThemeColor
   cardStyle: CardStyle
+  cardSize: CardSize
+  categoryColors: CategoryColors
+  statusColors: StatusColors
 }
 
-export const DEFAULT_THEME: ThemeSettings = { mode: 'light', color: 'blue', cardStyle: 'soft' }
+export const DEFAULT_CATEGORY_COLORS: CategoryColors = { budget: '#0ea5e9', income: '#22c55e', loan: '#a855f7', installment: '#f59e0b' }
+export const DEFAULT_STATUS_COLORS: StatusColors = { healthy: '#10b981', stable: '#3b82f6', tight: '#f59e0b', warning: '#f97316', deficit: '#ef4444' }
+
+export const DEFAULT_THEME: ThemeSettings = {
+  mode: 'light', color: 'blue', cardStyle: 'soft', cardSize: 'Standard',
+  categoryColors: DEFAULT_CATEGORY_COLORS, statusColors: DEFAULT_STATUS_COLORS,
+}
 
 export const COLOR_SWATCH: Record<ThemeColor, { label: string; from: string; to: string }> = {
   blue: { label: 'Ocean', from: '#3b82f6', to: '#1d4ed8' },
@@ -34,6 +43,7 @@ export function applyTheme(t: ThemeSettings) {
   root.dataset.theme = dark ? 'dark' : 'light'
   root.dataset.color = t.color
   root.dataset.cards = t.cardStyle
+  root.dataset.cardSize = (t.cardSize ?? DEFAULT_THEME.cardSize).toLowerCase()
   root.style.colorScheme = dark ? 'dark' : 'light'
   try { localStorage.setItem(KEY, JSON.stringify(t)) } catch { /* ignore */ }
 }
@@ -44,5 +54,6 @@ export function resetTheme() {
   root.dataset.theme = 'light'
   root.dataset.color = 'blue'
   root.dataset.cards = 'soft'
+  root.dataset.cardSize = 'standard'
   root.style.colorScheme = 'light'
 }

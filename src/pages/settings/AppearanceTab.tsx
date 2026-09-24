@@ -1,8 +1,8 @@
-import { Check, Monitor, Moon, Sun } from 'lucide-react'
+import { Check, Landmark, Monitor, Moon, Sun } from 'lucide-react'
 import { useStore } from '@/store/useStore'
-import { Card, CardHead } from '@/components/ui/Primitives'
+import { Card, CardHead, StatCard } from '@/components/ui/Primitives'
 import { COLOR_SWATCH, DEFAULT_THEME, applyTheme } from '@/lib/theme'
-import type { CardStyle, ThemeColor, ThemeMode } from '@/types'
+import type { CardSize, CardStyle, CategoryColors, StatusColors, ThemeColor, ThemeMode } from '@/types'
 
 const MODES: { key: ThemeMode; label: string; icon: typeof Sun }[] = [
   { key: 'light', label: 'Light', icon: Sun }, { key: 'dark', label: 'Dark', icon: Moon }, { key: 'system', label: 'Match device', icon: Monitor },
@@ -11,6 +11,19 @@ const CARDS: { key: CardStyle; label: string; hint: string }[] = [
   { key: 'soft', label: 'Soft', hint: 'Gentle shadow (default)' },
   { key: 'flat', label: 'Flat', hint: 'Thin outline, no shadow' },
   { key: 'glass', label: 'Glass', hint: 'Frosted, translucent cards' },
+]
+const SIZES: { key: CardSize; hint: string }[] = [
+  { key: 'Compact', hint: 'Tightest padding and text' },
+  { key: 'Standard', hint: 'Default' },
+  { key: 'Wide', hint: 'More padding, larger figures' },
+  { key: 'Full', hint: 'Largest — for a big screen or TV dashboard' },
+]
+const CATEGORY_FIELDS: { key: keyof CategoryColors; label: string }[] = [
+  { key: 'budget', label: 'Budget' }, { key: 'income', label: 'Income' }, { key: 'loan', label: 'Loan' }, { key: 'installment', label: 'Installment' },
+]
+const STATUS_FIELDS: { key: keyof StatusColors; label: string }[] = [
+  { key: 'healthy', label: 'Healthy' }, { key: 'stable', label: 'Stable' }, { key: 'tight', label: 'Tight' },
+  { key: 'warning', label: 'Warning' }, { key: 'deficit', label: 'Deficit' },
 ]
 
 /**
@@ -65,6 +78,58 @@ export function AppearanceTab() {
               <p className="text-[13px] font-bold text-slate-800">{c.label}</p>
               <p className="text-[11px] text-slate-400">{c.hint}</p>
             </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="Card size" sub="One size for every dashboard card — no per-card resizing yet" />
+        <div className="px-5 pb-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+            {SIZES.map((sz) => (
+              <button key={sz.key} onClick={() => set({ cardSize: sz.key })} className={`rounded-xl border p-4 text-left cursor-pointer transition ${theme.cardSize === sz.key ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-[#e2e8f0] hover:border-brand-200'}`}>
+                <p className="text-[13px] font-bold text-slate-800">{sz.key}</p>
+                <p className="text-[11px] text-slate-400">{sz.hint}</p>
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-slate-400 mb-2">Preview:</p>
+          <div className="max-w-xs">
+            <StatCard label="Monthly EMI" value="AED 1,500" icon={<Landmark size={20} />} tint="#a855f7" footer={<span className="text-slate-400">Preview</span>} />
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="Category colours" sub="Budget, income, loan and installment figures use these colours wherever this app reads them from your theme" />
+        <div className="px-5 pb-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {CATEGORY_FIELDS.map((f) => (
+            <div key={f.key} className="rounded-xl border border-[#e2e8f0] p-3 flex items-center gap-3">
+              <input
+                type="color"
+                className="h-9 w-9 rounded-lg border-0 cursor-pointer shrink-0"
+                value={theme.categoryColors[f.key]}
+                onChange={(e) => set({ categoryColors: { ...theme.categoryColors, [f.key]: e.target.value } })}
+              />
+              <span className="text-[12.5px] font-semibold text-slate-700">{f.label}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <CardHead title="Financial status colours" sub="Healthy / Stable / Tight / Warning / Deficit labels on My Financial Status and the Financial Forecast" />
+        <div className="px-5 pb-5 grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {STATUS_FIELDS.map((f) => (
+            <div key={f.key} className="rounded-xl border border-[#e2e8f0] p-3 flex items-center gap-3">
+              <input
+                type="color"
+                className="h-9 w-9 rounded-lg border-0 cursor-pointer shrink-0"
+                value={theme.statusColors[f.key]}
+                onChange={(e) => set({ statusColors: { ...theme.statusColors, [f.key]: e.target.value } })}
+              />
+              <span className="text-[12.5px] font-semibold text-slate-700">{f.label}</span>
+            </div>
           ))}
         </div>
       </Card>

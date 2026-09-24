@@ -2,8 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type {
   Account, AdvisorMessage, AdvisorPersona, Asset, AssetValuation, Bill, BudgetCategory, BudgetItem, Category, Doc,
-  Goal, GoldRate, HouseholdMember, ItemAlias, Loan, Note, Person, PriceWatch, Receipt, Settings, Subcategory,
-  Transaction, Transfer,
+  EmployeeMessage, Goal, GoldRate, HouseholdMember, IncomeSource, ItemAlias, Loan, Note, Person, PriceWatch, Receipt,
+  Settings, Subcategory, Transaction, Transfer, VerificationQuestion,
 } from '@/types'
 import {
   ACCOUNTS, BILLS, BUDGETS, DOCUMENTS, GOALS, LOANS, NOTES, PEOPLE, PRICE_WATCH, SETTINGS, TRANSACTIONS,
@@ -41,9 +41,14 @@ interface State {
   assetValuations: AssetValuation[]
   goldRates: GoldRate[]
   budgetItems: BudgetItem[]
+  verificationQuestions: VerificationQuestion[]
+  incomeSources: IncomeSource[]
+  /** Chat with AI employees — kept in this browser only, not synced to the cloud (see AIEmployees.tsx). */
+  employeeMessages: EmployeeMessage[]
 
   // ---- household / schema (set at sign-in, never persisted)
   schemaV2: boolean
+  schemaV3: boolean
   ownerId: string | null
   membership: HouseholdMember | null
   setContext: (c: SessionContext) => void
@@ -113,6 +118,17 @@ interface State {
   addAdvisorMessage: (m: Omit<AdvisorMessage, 'id'>) => void
   clearAdvisorMessages: () => void
   upsertAdvisorPersona: (p: AdvisorPersona) => void
+
+  addVerificationQuestion: (q: Omit<VerificationQuestion, 'id' | 'timesShown' | 'timesCorrect'>) => void
+  updateVerificationQuestion: (id: string, patch: Partial<VerificationQuestion>) => void
+  removeVerificationQuestion: (id: string) => void
+
+  addIncomeSource: (s: Omit<IncomeSource, 'id'>) => void
+  updateIncomeSource: (id: string, patch: Partial<IncomeSource>) => void
+  removeIncomeSource: (id: string) => void
+
+  addEmployeeMessage: (m: Omit<EmployeeMessage, 'id'>) => void
+  clearEmployeeMessages: (employeeId: string) => void
 
   addAccount: (a: Omit<Account, 'id'>) => void
   updateAccount: (id: string, patch: Partial<Account>) => void
@@ -194,6 +210,9 @@ const seedState = () => ({
   assetValuations: [] as AssetValuation[],
   goldRates: [] as GoldRate[],
   budgetItems: [] as BudgetItem[],
+  verificationQuestions: [] as VerificationQuestion[],
+  incomeSources: [] as IncomeSource[],
+  employeeMessages: [] as EmployeeMessage[],
 })
 
 // ---------------------------------------------------------------------------
@@ -323,9 +342,10 @@ export const useStore = create<State>()(
       lastSynced: null,
 
       schemaV2: false,
+      schemaV3: false,
       ownerId: null,
       membership: null,
-      setContext: (c) => set({ schemaV2: c.schemaV2, ownerId: c.ownerId, membership: c.membership }),
+      setContext: (c) => set({ schemaV2: c.schemaV2, schemaV3: c.schemaV3, ownerId: c.ownerId, membership: c.membership }),
 
       setSession: (userId, userEmail) => set({ userId, userEmail }),
       hydrate: (data) => {
@@ -353,6 +373,8 @@ export const useStore = create<State>()(
           assetValuations: data.assetValuations ?? [],
           goldRates: data.goldRates ?? [],
           budgetItems: data.budgetItems ?? [],
+          verificationQuestions: data.verificationQuestions ?? [],
+          incomeSources: data.incomeSources ?? [],
           advisorMessages: data.advisorMessages ?? [],
           advisorPersonas: data.advisorPersonas ?? [],
           budgets: data.budgets,
@@ -628,6 +650,40 @@ export const useStore = create<State>()(
         push('advisorPersonas', p)
       },
 
+      // ------------------------------------------------ verification questions
+      addVerificationQuestion: (q) => {
+        const item: VerificationQuestion = { ...q, id: uid('vq'), timesShown: 0, timesCorrect: 0 }
+        set({ verificationQuestions: [...get().verificationQuestions, item] })
+        push('verificationQuestions', item)
+      },
+      updateVerificationQuestion: (id, patch) =>
+        set({ verificationQuestions: patchList(get().verificationQuestions, id, patch, 'verificationQuestions') }),
+      removeVerificationQuestion: (id) => {
+        set({ verificationQuestions: get().verificationQuestions.filter((q) => q.id !== id) })
+        drop('verificationQuestions', id)
+      },
+
+      // ------------------------------------------------------- income sources
+      addIncomeSource: (s) => {
+        const item: IncomeSource = { ...s, id: uid('inc') }
+        set({ incomeSources: [...get().incomeSources, item] })
+        push('incomeSources', item)
+      },
+      updateIncomeSource: (id, patch) => set({ incomeSources: patchList(get().incomeSources, id, patch, 'incomeSources') }),
+      removeIncomeSource: (id) => {
+        set({ incomeSources: get().incomeSources.filter((s) => s.id !== id) })
+        drop('incomeSources', id)
+      },
+
+      // ------------------------------------------------- AI employee chat (local only)
+      addEmployeeMessage: (m) => {
+        const item = { ...m, id: uid('em') }
+        set({ employeeMessages: [...get().employeeMessages, item] })
+      },
+      clearEmployeeMessages: (employeeId) => {
+        set({ employeeMessages: get().employeeMessages.filter((m) => m.employeeId !== employeeId) })
+      },
+
       // -------------------------------------------------------------- accounts
       addAccount: (a) => {
         // What the form calls "balance" is the opening balance; the shown
@@ -837,10 +893,10 @@ export const useStore = create<State>()(
       partialize: (s) => {
         const {
           userId, userEmail, syncing, syncError, lastSynced, analysing, analysisError,
-          schemaV2, ownerId, membership, ...data
+          schemaV2, schemaV3, ownerId, membership, ...data
         } = s
         void userId; void userEmail; void syncing; void syncError; void lastSynced
-        void analysing; void analysisError; void schemaV2; void ownerId; void membership
+        void analysing; void analysisError; void schemaV2; void schemaV3; void ownerId; void membership
         return data
       },
     },

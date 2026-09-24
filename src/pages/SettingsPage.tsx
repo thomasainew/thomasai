@@ -11,6 +11,7 @@ import { AppearanceTab } from '@/pages/settings/AppearanceTab'
 import { StatusTab } from '@/pages/settings/StatusTab'
 import { RatesTab } from '@/pages/settings/RatesTab'
 import { SecurityTab } from '@/pages/settings/SecurityTab'
+import { VerificationTab } from '@/pages/settings/VerificationTab'
 import { FamilyTab } from '@/pages/settings/FamilyTab'
 import { SeoTab } from '@/pages/settings/SeoTab'
 
@@ -317,6 +318,7 @@ const TABS = [
   { key: 'rates', label: 'Currency & Rates' },
   { key: 'family', label: 'Family Users' },
   { key: 'security', label: 'Security' },
+  { key: 'verification', label: 'Verification Questions' },
   { key: 'seo', label: 'SEO & Analytics' },
 ] as const
 
@@ -336,6 +338,7 @@ export default function SettingsPage() {
       {tab === 'rates' && <RatesTab />}
       {tab === 'family' && <FamilyTab />}
       {tab === 'security' && <SecurityTab />}
+      {tab === 'verification' && <VerificationTab />}
       {tab === 'seo' && <SeoTab />}
     </div>
   )

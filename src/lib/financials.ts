@@ -100,3 +100,31 @@ export function buildSnapshot(i: SnapshotInput) {
 }
 
 export type Snapshot = ReturnType<typeof buildSnapshot>
+
+export type MonthSituation = 'Healthy' | 'Stable' | 'Tight' | 'Attention Required' | 'Deficit'
+
+/**
+ * A month's plain-language situation from its expected balance against its
+ * income — used by My Financial Status and the Financial Forecast, so both
+ * describe a month the same way. Never from balance alone: the same shortfall
+ * means less against a bigger income.
+ */
+export function monthlySituation(expectedBalance: number, income: number): MonthSituation {
+  if (expectedBalance < 0) return income > 0 && Math.abs(expectedBalance) / income >= 0.15 ? 'Deficit' : 'Attention Required'
+  if (income <= 0) return expectedBalance > 0 ? 'Stable' : 'Tight'
+  const ratio = expectedBalance / income
+  if (ratio >= 0.25) return 'Healthy'
+  if (ratio >= 0.1) return 'Stable'
+  return 'Tight'
+}
+
+export const SITUATION_TONE: Record<MonthSituation, string> = {
+  Healthy: 'green', Stable: 'blue', Tight: 'amber', 'Attention Required': 'amber', Deficit: 'red',
+}
+
+/** The theme's own colour for a situation (see Settings → Appearance → Financial Status Colours). */
+export function situationColor(situation: MonthSituation, statusColors?: import('@/types').StatusColors): string | undefined {
+  if (!statusColors) return undefined
+  const key = { Healthy: 'healthy', Stable: 'stable', Tight: 'tight', 'Attention Required': 'warning', Deficit: 'deficit' } as const
+  return statusColors[key[situation]]
+}

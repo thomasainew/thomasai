@@ -19,7 +19,7 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 
-const SECTIONS = ['accounts', 'transactions', 'budget', 'loans', 'people', 'bills', 'documents', 'notes', 'goals', 'shopping', 'assets', 'advisor']
+const SECTIONS = ['accounts', 'transactions', 'budget', 'loans', 'income', 'people', 'bills', 'documents', 'notes', 'goals', 'shopping', 'assets', 'advisor']
 const cleanSections = (s: unknown): string[] =>
   Array.isArray(s) ? s.filter((x) => x === '*' || SECTIONS.includes(x)) : []
 const cleanAccounts = (a: unknown): string[] | null =>

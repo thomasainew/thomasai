@@ -2,15 +2,18 @@ import { Suspense, lazy } from 'react'
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { AuthGate } from '@/components/AuthGate'
+const FinancialStatus = lazy(() => import('@/pages/FinancialStatus'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Accounts = lazy(() => import('@/pages/Accounts'))
 const Income = lazy(() => import('@/pages/Income'))
+const IncomePlanning = lazy(() => import('@/pages/IncomePlanning'))
 const Expenses = lazy(() => import('@/pages/Expenses'))
 const ExpenseReport = lazy(() => import('@/pages/ExpenseReport'))
 const Categories = lazy(() => import('@/pages/Categories'))
 const Budget = lazy(() => import('@/pages/Budget'))
 const Loans = lazy(() => import('@/pages/Loans'))
 const People = lazy(() => import('@/pages/People'))
+const Installments = lazy(() => import('@/pages/Installments'))
 const Bills = lazy(() => import('@/pages/Bills'))
 const Documents = lazy(() => import('@/pages/Documents'))
 const Notes = lazy(() => import('@/pages/Notes'))
@@ -19,9 +22,11 @@ const Shopping = lazy(() => import('@/pages/Shopping'))
 const Goals = lazy(() => import('@/pages/Goals'))
 const Reports = lazy(() => import('@/pages/Reports'))
 const ProfitLoss = lazy(() => import('@/pages/ProfitLoss'))
+const Forecast = lazy(() => import('@/pages/Forecast'))
 const Assets = lazy(() => import('@/pages/Assets'))
 const CalendarPage = lazy(() => import('@/pages/CalendarPage'))
 const AIAdvisor = lazy(() => import('@/pages/AIAdvisor'))
+const AIEmployees = lazy(() => import('@/pages/AIEmployees'))
 const TrainAdvisors = lazy(() => import('@/pages/TrainAdvisors'))
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'))
 
@@ -32,9 +37,11 @@ export default function App() {
         <Suspense fallback={<div className="p-10 text-center text-[13px] text-slate-400">Loading…</div>}>
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<Dashboard />} />
+            <Route index element={<FinancialStatus />} />
+            <Route path="dashboard" element={<Dashboard />} />
             <Route path="accounts" element={<Accounts />} />
             <Route path="income" element={<Income />} />
+            <Route path="income-planning" element={<IncomePlanning />} />
             <Route path="expenses" element={<Expenses />} />
             <Route path="expense-report" element={<ExpenseReport />} />
             {/* Purchases merged into the expense report; keep old links working. */}
@@ -50,9 +57,12 @@ export default function App() {
             <Route path="goals" element={<Goals />} />
             <Route path="reports" element={<Reports />} />
             <Route path="profit-loss" element={<ProfitLoss />} />
+            <Route path="forecast" element={<Forecast />} />
+            <Route path="installments" element={<Installments />} />
             <Route path="assets" element={<Assets />} />
             <Route path="calendar" element={<CalendarPage />} />
             <Route path="ai-advisor" element={<AIAdvisor />} />
+            <Route path="ai-employees" element={<AIEmployees />} />
             <Route path="ai-advisor/train" element={<TrainAdvisors />} />
             <Route path="categories" element={<Categories />} />
             <Route path="settings" element={<SettingsPage />} />

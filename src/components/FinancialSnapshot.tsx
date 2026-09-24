@@ -5,10 +5,9 @@ import { useStore } from '@/store/useStore'
 import { Card, StatCard } from '@/components/ui/Primitives'
 import { TODAY, convert, fmtDate, greeting, money, toBase } from '@/lib/format'
 import { buildSnapshot } from '@/lib/financials'
+import { tierTone } from '@/lib/status'
 import { docStatus } from '@/lib/selectors'
 import type { Currency } from '@/types'
-
-const TIER_TONE = { poor: 'from-rose-500 to-orange-400', middle: 'from-brand-600 to-cyan-500', rich: 'from-emerald-500 to-teal-400' } as const
 
 /**
  * The first thing you see after signing in: your photo and status, a plain
@@ -71,7 +70,7 @@ export function FinancialSnapshot() {
 
   return (
     <div className="space-y-4">
-      <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${TIER_TONE[tier.key]} text-white shadow-lg`}>
+      <div className={`relative overflow-hidden rounded-2xl bg-gradient-to-br ${tierTone(tier, snap.status.tiers)} text-white shadow-lg`}>
         <div className="absolute -right-16 -top-20 h-64 w-64 rounded-full bg-white/10" />
         <div className="absolute -left-10 -bottom-24 h-56 w-56 rounded-full bg-white/5" />
         <div className="relative p-5 md:p-6 flex flex-col md:flex-row gap-5 md:items-center">

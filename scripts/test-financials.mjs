@@ -66,7 +66,7 @@ test('upcoming EMI in the next 30 days is listed', () => {
 })
 test('status is derived from several signals and can be explained', () => {
   assert.equal(snap.status.parts.length, 4)
-  assert.ok(['poor', 'middle', 'rich'].includes(snap.status.tier.key))
+  assert.ok(['pressure', 'stable', 'growing', 'freedom'].includes(snap.status.tier.key))
 })
 test('reporting in INR converts consistently', () => {
   const inr = buildSnapshot({ ...{ today: '2026-09-21', settings: { extra: {} }, accounts, transactions: txns, transfers, loans, assets, bills: [], documents: [], notes: [], budgetItems: [], people: [] }, toReport: (a, c) => fx(a, c, 'INR'), fx })

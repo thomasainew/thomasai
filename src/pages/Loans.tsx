@@ -7,13 +7,16 @@ import { TransferModal } from '@/components/TransferModal'
 import { TransactionModal } from '@/components/TransactionModal'
 import { loanActivity } from '@/lib/loanActivity'
 import { accountLabel } from '@/lib/accounting'
+import { amortizationSchedule, amortizes } from '@/lib/amortization'
 import { daysLeft, fmtDate, money, pct, toBase, TODAY } from '@/lib/format'
 import { loanSummary } from '@/lib/selectors'
+import { DEFAULT_THEME } from '@/lib/theme'
 import type { Currency, Loan, Transaction, Transfer } from '@/types'
 
 export default function Loans() {
-  const { loans, accounts, transactions, transfers, addLoan, updateLoan, removeLoan, addTransfer, removeTransfer, removeTransaction } =
+  const { loans, accounts, transactions, transfers, settings, addLoan, updateLoan, removeLoan, addTransfer, removeTransfer, removeTransaction } =
     useStore()
+  const catColor = (settings.extra?.theme?.categoryColors ?? DEFAULT_THEME.categoryColors).loan
   const [modal, setModal] = useState(false)
   const [editing, setEditing] = useState<Loan | null>(null)
   const [payFor, setPayFor] = useState<Loan | null>(null)
@@ -26,6 +29,7 @@ export default function Loans() {
     () => (activityLoan ? loanActivity(activityLoan, accounts, loans, transactions, transfers) : []),
     [activityLoan, accounts, loans, transactions, transfers],
   )
+  const schedule = useMemo(() => (activityLoan && activityLoan.outstanding > 0 ? amortizationSchedule(activityLoan) : []), [activityLoan])
 
   const s = useMemo(() => loanSummary(loans), [loans])
   const totalPrincipal = s.active.reduce((a, l) => a + toBase(l.principal, l.currency), 0)
@@ -46,7 +50,7 @@ export default function Loans() {
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Outstanding" value={money(s.outstanding)} icon={<Landmark size={20} />} tint="#ef4444"
           footer={<span className="text-slate-400">{s.active.length} active loans</span>} />
-        <StatCard label="Monthly EMI" value={money(s.monthlyEmi)} icon={<Banknote size={20} />} tint="#3b82f6"
+        <StatCard label="Monthly EMI" value={money(s.monthlyEmi)} icon={<Banknote size={20} />} tint={catColor}
           footer={<span className="text-slate-400">Across all loans</span>} />
         <StatCard label="Due This Month" value={money(s.dueAmount)} icon={<CalendarClock size={20} />} tint="#f59e0b"
           footer={<span className="text-slate-400">{s.dueThisMonth.length} payments scheduled</span>} />
@@ -200,6 +204,55 @@ export default function Loans() {
               </tbody>
             </table>
             {activity.length === 0 && <Empty text="No activity on this loan yet." />}
+          </div>
+        </Card>
+      )}
+
+      {activityLoan && activityLoan.outstanding > 0 && (
+        <Card>
+          <CardHead
+            title="Loan Amortization"
+            sub={`How each EMI on ${activityLoan.name} splits between interest and principal, from today's outstanding balance`}
+            right={
+              schedule.length > 0 ? (
+                <div className="flex items-center gap-4 text-right">
+                  <div><p className="text-[10px] text-slate-400">Remaining EMIs</p><p className="text-[13px] font-extrabold text-slate-800">{amortizes(activityLoan) ? schedule.length : '—'}</p></div>
+                  <div><p className="text-[10px] text-slate-400">Loan End Date</p><p className="text-[13px] font-extrabold text-slate-800">{amortizes(activityLoan) ? fmtDate(`${schedule[schedule.length - 1].month}-01`) : '—'}</p></div>
+                </div>
+              ) : undefined
+            }
+          />
+          {!amortizes(activityLoan) && (
+            <div className="mx-5 mb-3 flex items-center gap-2.5 rounded-xl bg-rose-50 px-3.5 py-2.5 text-[12px] text-rose-800">
+              <AlertTriangle size={14} className="shrink-0" /> This EMI does not cover the interest due each month — the balance will never fall. Raise the EMI or the loan will not amortize.
+            </div>
+          )}
+          <div className="overflow-x-auto scroll-thin">
+            <table className="w-full min-w-[640px]">
+              <thead className="bg-slate-50/70">
+                <tr>
+                  <th className="th">Month</th>
+                  <th className="th text-right">Opening Balance</th>
+                  <th className="th text-right">Interest</th>
+                  <th className="th text-right">Principal</th>
+                  <th className="th text-right">EMI</th>
+                  <th className="th text-right">Closing Balance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f1f5f9]">
+                {schedule.slice(0, 12).map((r) => (
+                  <tr key={r.month} className="row-hover">
+                    <td className="td text-slate-600">{fmtDate(`${r.month}-01`)}</td>
+                    <td className="td text-right tabular-nums text-slate-500">{money(r.opening, activityLoan.currency)}</td>
+                    <td className="td text-right tabular-nums text-amber-600">{money(r.interest, activityLoan.currency)}</td>
+                    <td className="td text-right tabular-nums text-emerald-600">{money(r.principal, activityLoan.currency)}</td>
+                    <td className="td text-right font-semibold tabular-nums">{money(r.emi, activityLoan.currency)}</td>
+                    <td className="td text-right font-bold tabular-nums">{money(r.closing, activityLoan.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {schedule.length > 12 && <p className="px-5 py-3 text-[11.5px] text-slate-400">+{schedule.length - 12} more month{schedule.length - 12 === 1 ? '' : 's'} until this loan is paid off.</p>}
           </div>
         </Card>
       )}

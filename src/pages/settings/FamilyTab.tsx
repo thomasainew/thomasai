@@ -8,7 +8,7 @@ import type { HouseholdMember } from '@/types'
 
 export const SECTIONS: { key: string; label: string }[] = [
   { key: 'accounts', label: 'Accounts' }, { key: 'transactions', label: 'Income, expenses, transfers & reports' },
-  { key: 'budget', label: 'Budget' }, { key: 'loans', label: 'Loans' }, { key: 'people', label: 'People' },
+  { key: 'budget', label: 'Budget' }, { key: 'loans', label: 'Loans' }, { key: 'income', label: 'Income planning' }, { key: 'people', label: 'People' },
   { key: 'bills', label: 'Bills & subscriptions' }, { key: 'documents', label: 'Documents' }, { key: 'notes', label: 'Notes & follow-ups' },
   { key: 'goals', label: 'Savings goals' }, { key: 'shopping', label: 'Price tracker & shopping' }, { key: 'assets', label: 'Assets & properties' },
   { key: 'advisor', label: 'Family Advisor' },

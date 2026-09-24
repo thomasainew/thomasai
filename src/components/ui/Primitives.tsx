@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useStore } from '@/store/useStore'
+import { DEFAULT_THEME } from '@/lib/theme'
+import type { CardSize } from '@/types'
 
 export function cx(...parts: (string | false | null | undefined)[]) {
   return parts.filter(Boolean).join(' ')
@@ -47,7 +50,8 @@ const TONES: Record<string, string> = {
   slate: 'bg-slate-100 text-slate-600',
 }
 
-export function Badge({ tone = 'slate', children }: { tone?: keyof typeof TONES | string; children: ReactNode }) {
+export function Badge({ tone = 'slate', color, children }: { tone?: keyof typeof TONES | string; color?: string; children: ReactNode }) {
+  if (color) return <span className="chip" style={{ background: `${color}1a`, color }}>{children}</span>
   return <span className={cx('chip', TONES[tone] ?? TONES.slate)}>{children}</span>
 }
 
@@ -102,6 +106,14 @@ export function PageHeader({
   )
 }
 
+/** Card padding, icon box and value size for each of the four global card sizes (see Settings → Appearance). */
+const STAT_CARD_SIZES: Record<CardSize, { pad: string; icon: string; value: string }> = {
+  Compact: { pad: 'p-3', icon: 'h-7 w-7', value: 'text-[13px]' },
+  Standard: { pad: 'p-4', icon: 'h-9 w-9', value: 'text-[clamp(15px,1.35vw,20px)]' },
+  Wide: { pad: 'p-5', icon: 'h-10 w-10', value: 'text-[clamp(17px,1.5vw,22px)]' },
+  Full: { pad: 'p-6', icon: 'h-11 w-11', value: 'text-[clamp(19px,1.7vw,26px)]' },
+}
+
 export function StatCard({
   label,
   value,
@@ -115,10 +127,12 @@ export function StatCard({
   tint?: string
   footer?: ReactNode
 }) {
+  const cardSize = useStore((s) => s.settings.extra?.theme?.cardSize) ?? DEFAULT_THEME.cardSize
+  const sz = STAT_CARD_SIZES[cardSize] ?? STAT_CARD_SIZES.Standard
   return (
-    <div className="card p-4 flex items-start gap-2.5 hover:-translate-y-0.5 transition-transform duration-200">
+    <div className={cx('card flex items-start gap-2.5 hover:-translate-y-0.5 transition-transform duration-200', sz.pad)}>
       <div
-        className="h-9 w-9 shrink-0 rounded-xl grid place-items-center"
+        className={cx('shrink-0 rounded-xl grid place-items-center', sz.icon)}
         style={{ background: `${tint}1a`, color: tint }}
       >
         {icon}
@@ -127,7 +141,7 @@ export function StatCard({
         <p className="text-[11px] font-medium text-slate-500 truncate" title={label}>
           {label}
         </p>
-        <p className="text-[clamp(15px,1.35vw,20px)] font-extrabold tracking-tight text-slate-900 mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis">
+        <p className={cx('font-extrabold tracking-tight text-slate-900 mt-0.5 whitespace-nowrap overflow-hidden text-ellipsis', sz.value)}>
           {value}
         </p>
         {footer && <div className="mt-1.5 text-[10.5px] leading-snug">{footer}</div>}

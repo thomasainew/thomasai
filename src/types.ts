@@ -205,6 +205,10 @@ export interface Note {
   feeCategory?: string
   /** Multiple dated payments under this one record. */
   schedule?: Installment[]
+  /** Interest or extra charge on top of the schedule/amount — informational, shown alongside the total. */
+  extraCharge?: number
+  /** When false, this note's amount/schedule is a reminder only and never affects the monthly budget or forecast. Defaults to true. */
+  autoAddToBudget?: boolean
 }
 
 export interface Goal {
@@ -244,6 +248,25 @@ export interface PriceWatch {
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type ThemeColor = 'blue' | 'emerald' | 'violet' | 'rose' | 'amber' | 'slate'
 export type CardStyle = 'soft' | 'flat' | 'glass'
+/** Dashboard card density — a single, app-wide choice rather than per-card resizing. */
+export type CardSize = 'Compact' | 'Standard' | 'Wide' | 'Full'
+
+/** Colour used for a category of figure wherever this app deliberately reads it from the theme. */
+export interface CategoryColors {
+  budget: string
+  income: string
+  loan: string
+  installment: string
+}
+
+/** Colour used for a Financial Forecast / Financial Status situation label. */
+export interface StatusColors {
+  healthy: string
+  stable: string
+  tight: string
+  warning: string
+  deficit: string
+}
 
 /** One line of the shopping list. Kept in settings so it follows you across devices. */
 export interface ShoppingListItem {
@@ -261,7 +284,8 @@ export interface ShoppingListItem {
 }
 
 export interface StatusTier {
-  key: 'poor' | 'middle' | 'rich'
+  /** Free-form slug — the tier set is user-editable, not fixed to three stages. */
+  key: string
   label: string
   /** Score (0–100) at which this tier starts. */
   from: number
@@ -284,7 +308,10 @@ export interface FamilyAdvisorProfile {
 
 /** Settings introduced after v1, kept in one JSON column so they sync as a unit. */
 export interface SettingsExtra {
-  theme?: { mode: ThemeMode; color: ThemeColor; cardStyle: CardStyle }
+  theme?: {
+    mode: ThemeMode; color: ThemeColor; cardStyle: CardStyle
+    cardSize?: CardSize; categoryColors?: CategoryColors; statusColors?: StatusColors
+  }
   profilePhoto?: string
   statusTiers?: StatusTier[]
   advisorProfile?: FamilyAdvisorProfile
@@ -293,6 +320,14 @@ export interface SettingsExtra {
   fx?: { rates: Record<string, number>; date: string; source: string }
   /** Net worth at the previous visit, to show the change since then. */
   lastVisit?: { date: string; netWorth: number; prev?: { date: string; netWorth: number } }
+  /** Step-2 login security verification. Off by default until questions exist and this is not explicitly false. */
+  security?: { enabled: boolean }
+  /** Planned budget for a future month (yyyy-MM → base-currency amount), overriding the flat monthly budget in the Financial Forecast. */
+  futureBudgets?: Record<string, number>
+  /** Planned/expected income for a future month (yyyy-MM → base-currency amount), overriding the averaged estimate in the Financial Forecast. */
+  futureIncome?: Record<string, number>
+  /** Configurable AI "employee" characters — see src/pages/AIEmployees.tsx. */
+  aiEmployees?: AIEmployee[]
 }
 
 export interface Settings {
@@ -457,6 +492,87 @@ export interface BudgetItem {
   txnId?: string
   paidAmount?: number
   notes?: string
+}
+
+export type VerificationStatus = 'Active' | 'Draft'
+
+/** One admin-configured "which person…" login security question. See src/pages/settings/VerificationTab.tsx. */
+export interface VerificationQuestion {
+  id: string
+  question: string
+  /** Background scene shown behind the photo grid, e.g. 'Airport'. Decorative only. */
+  scene: string
+  /** Person.id of the correct answer. Never sent to the browser before it answers — see security-verify. */
+  correctPersonId: string
+  /** Other Person.id options shown alongside the correct one. */
+  otherPersonIds: string[]
+  status: VerificationStatus
+  numberOfChoices: number
+  shufflePositions: boolean
+  randomize: boolean
+  avoidRepeatLast: boolean
+  lastUsedAt?: string
+  timesShown: number
+  timesCorrect: number
+}
+
+/** One row of the "Login Attempts" log, read-only — written by the security-verify edge function. */
+export interface VerificationAttempt {
+  id: string
+  memberId: string
+  memberName: string
+  questionId: string
+  questionText: string
+  selectedPersonId: string
+  correct: boolean
+  at: string
+}
+
+export type IncomeCategory = 'Salary' | 'Other' | 'Variable' | 'One-Time' | 'Bonus' | (string & {})
+export type IncomeFrequency = 'Monthly' | 'Quarterly' | 'Yearly' | 'One-Time'
+
+/**
+ * A PLANNED/expected income — salary, recurring or future — kept apart from
+ * the actual transactions on the Income page. This is what the Financial
+ * Forecast and My Financial Status project forward for months that have not
+ * happened yet. See src/lib/income.ts.
+ */
+export interface IncomeSource {
+  id: string
+  name: string
+  category: IncomeCategory
+  amount: number
+  currency: Currency
+  frequency: IncomeFrequency
+  /** First month this applies from (yyyy-MM-dd). */
+  startDate: string
+  /** Last month it applies to, inclusive — open-ended if unset. */
+  endDate?: string
+  person?: string
+  active: boolean
+  notes?: string
+}
+
+/** A configurable AI "employee" — see src/pages/AIEmployees.tsx. Text-only for now: no live voice or live research. */
+export interface AIEmployee {
+  id: string
+  name: string
+  role: string
+  personality?: string
+  knowledgeArea?: string
+  /** Reply language, e.g. 'English', 'Malayalam', 'Arabic', 'Hindi'. */
+  language: string
+  avatar: string // an emoji, or a data URL photo
+  active: boolean
+}
+
+/** One line of chat with an AI employee. Kept locally only (not synced to the cloud) for now. */
+export interface EmployeeMessage {
+  id: string
+  employeeId: string
+  from: 'user' | 'employee'
+  text: string
+  at: string
 }
 
 export interface HouseholdMember {

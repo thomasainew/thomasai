@@ -59,17 +59,17 @@ test('spot XAU/USD × USD/INR (+ duty) gives INR per gram', () => {
 
 console.log('Financial status')
 const healthy = { netWorth: 600000, monthlyIncome: 20000, monthlyExpenses: 10000, availableFunds: 70000, monthlyDebtPayments: 0, totalDebt: 0, hasAccounts: true, monthsOfData: 6, oldestValuationDays: 30, hasAssets: true }
-test('healthy → Rich, thin → Middle, indebted → Poor', () => {
-  assert.equal(tierFor(statusScore(healthy).score, DEFAULT_TIERS).key, 'rich')
+test('healthy → Financial Freedom, thin → Stable, indebted → Financial Pressure', () => {
+  assert.equal(tierFor(statusScore(healthy).score, DEFAULT_TIERS).key, 'freedom')
   const thin = { ...healthy, netWorth: 60000, availableFunds: 25000, monthlyExpenses: 15000, monthlyDebtPayments: 2000, totalDebt: 30000 }
-  assert.equal(tierFor(statusScore(thin).score, DEFAULT_TIERS).key, 'middle')
+  assert.equal(tierFor(statusScore(thin).score, DEFAULT_TIERS).key, 'stable')
   const poor = { ...healthy, netWorth: -50000, availableFunds: 1000, monthlyExpenses: 19000, monthlyDebtPayments: 9000, totalDebt: 200000 }
-  assert.equal(tierFor(statusScore(poor).score, DEFAULT_TIERS).key, 'poor')
+  assert.equal(tierFor(statusScore(poor).score, DEFAULT_TIERS).key, 'pressure')
 })
-test('asset value alone does not make someone “Rich”', () => {
+test('asset value alone does not make someone “Financial Freedom”', () => {
   const assetRichCashPoor = { ...healthy, netWorth: 5_000_000, availableFunds: 0, monthlyIncome: 10000, monthlyExpenses: 12000, monthlyDebtPayments: 6000, totalDebt: 900000 }
   const s = statusScore(assetRichCashPoor)
-  assert.ok(tierFor(s.score, DEFAULT_TIERS).key !== 'rich', `score ${s.score}`)
+  assert.ok(tierFor(s.score, DEFAULT_TIERS).key !== 'freedom', `score ${s.score}`)
 })
 test('thresholds and labels are editable', () => {
   const tiers = [{ key: 'poor', label: 'Building', from: 0 }, { key: 'middle', label: 'Comfortable', from: 30 }, { key: 'rich', label: 'Thriving', from: 60 }]

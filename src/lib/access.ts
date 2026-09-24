@@ -2,11 +2,11 @@ import type { HouseholdMember } from '@/types'
 
 /** Which permission section each screen belongs to. The database enforces the same sections. */
 export const PATH_SECTION: Record<string, string> = {
-  '/accounts': 'accounts', '/income': 'transactions', '/expenses': 'transactions', '/expense-report': 'transactions',
+  '/accounts': 'accounts', '/income': 'transactions', '/income-planning': 'income', '/expenses': 'transactions', '/expense-report': 'transactions',
   '/categories': 'transactions', '/reports': 'transactions', '/profit-loss': 'transactions', '/budget': 'budget',
   '/loans': 'loans', '/people': 'people', '/bills': 'bills', '/calendar': 'bills', '/documents': 'documents',
-  '/notes': 'notes', '/goals': 'goals', '/price-tracker': 'shopping', '/shopping': 'shopping', '/assets': 'assets',
-  '/ai-advisor': 'advisor',
+  '/notes': 'notes', '/installments': 'notes', '/goals': 'goals', '/price-tracker': 'shopping', '/shopping': 'shopping',
+  '/assets': 'assets', '/ai-advisor': 'advisor', '/ai-employees': 'advisor',
 }
 
 /**

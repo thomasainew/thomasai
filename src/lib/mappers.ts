@@ -1,6 +1,7 @@
 import type {
   Account, AdvisorMessage, AdvisorPersona, Asset, AssetValuation, Bill, BudgetCategory, BudgetItem, Category, Doc,
-  Goal, GoldRate, ItemAlias, Loan, Note, Person, PriceWatch, Receipt, Settings, Subcategory, Transaction, Transfer,
+  Goal, GoldRate, IncomeSource, ItemAlias, Loan, Note, Person, PriceWatch, Receipt, Settings, Subcategory, Transaction,
+  Transfer, VerificationQuestion,
 } from '@/types'
 
 /** Every syncable collection in the store, and the table that backs it. */
@@ -26,10 +27,15 @@ export const TABLES = {
   assetValuations: 'asset_valuations',
   goldRates: 'gold_rates',
   budgetItems: 'budget_items',
+  verificationQuestions: 'verification_questions',
+  incomeSources: 'income_sources',
 } as const
 
 /** Tables that only exist once migration 0015 has been run. */
 export const V2_TABLES: Collection[] = ['receipts', 'itemAliases', 'assets', 'assetValuations', 'goldRates', 'budgetItems']
+
+/** Tables that only exist once migration 0016 has been run. */
+export const V3_TABLES: Collection[] = ['verificationQuestions', 'incomeSources']
 
 /** Columns added to older tables by 0015 — stripped from writes until it has run. */
 export const V2_COLUMNS: Partial<Record<Collection, string[]>> = {
@@ -39,6 +45,11 @@ export const V2_COLUMNS: Partial<Record<Collection, string[]>> = {
   loans: ['account_id', 'start_date'],
   documents: ['storage_path', 'file_name', 'mime_type', 'size_bytes', 'uploaded_at', 'links', 'renewal_cost', 'renewal_currency'],
   notes: ['schedule', 'person', 'amount', 'currency', 'fee_category'],
+}
+
+/** Columns added to older tables by 0016 — stripped from writes until it has run. */
+export const V3_COLUMNS: Partial<Record<Collection, string[]>> = {
+  notes: ['extra_charge', 'auto_add_to_budget'],
 }
 
 export type Collection = keyof typeof TABLES
@@ -204,6 +215,7 @@ export const MAPPERS: {
       id: n.id, title: n.title, category: n.category, due_date: n.dueDate, status: n.status, done: n.done,
       schedule: n.schedule ?? [], person: n.person ?? null, amount: n.amount ?? null,
       currency: n.currency ?? null, fee_category: n.feeCategory ?? null,
+      extra_charge: n.extraCharge ?? null, auto_add_to_budget: n.autoAddToBudget ?? true,
     }),
     from: (r): Note => ({
       id: r.id, title: r.title, category: r.category, dueDate: r.due_date,
@@ -211,6 +223,8 @@ export const MAPPERS: {
       schedule: Array.isArray(r.schedule) ? r.schedule : [], person: r.person ?? undefined,
       amount: r.amount == null ? undefined : num(r.amount), currency: r.currency ?? undefined,
       feeCategory: r.fee_category ?? undefined,
+      extraCharge: r.extra_charge == null ? undefined : num(r.extra_charge),
+      autoAddToBudget: r.auto_add_to_budget ?? true,
     }),
   },
 
@@ -324,6 +338,35 @@ export const MAPPERS: {
     from: (r): PriceWatch => ({
       id: r.id, item: r.item, store: r.store, current: num(r.current_price),
       previous: num(r.previous_price), target: num(r.target_price), updated: r.updated,
+    }),
+  },
+
+  verificationQuestions: {
+    to: (q: VerificationQuestion) => ({
+      id: q.id, question: q.question, scene: q.scene, correct_person_id: q.correctPersonId,
+      other_person_ids: q.otherPersonIds ?? [], status: q.status, number_of_choices: q.numberOfChoices,
+      shuffle_positions: q.shufflePositions, randomize: q.randomize, avoid_repeat_last: q.avoidRepeatLast,
+      last_used_at: q.lastUsedAt ?? null, times_shown: q.timesShown ?? 0, times_correct: q.timesCorrect ?? 0,
+    }),
+    from: (r): VerificationQuestion => ({
+      id: r.id, question: r.question, scene: r.scene ?? 'Airport', correctPersonId: r.correct_person_id,
+      otherPersonIds: Array.isArray(r.other_person_ids) ? r.other_person_ids : [],
+      status: r.status ?? 'Draft', numberOfChoices: num(r.number_of_choices, 12),
+      shufflePositions: r.shuffle_positions ?? true, randomize: r.randomize ?? true,
+      avoidRepeatLast: r.avoid_repeat_last ?? true, lastUsedAt: r.last_used_at ?? undefined,
+      timesShown: num(r.times_shown), timesCorrect: num(r.times_correct),
+    }),
+  },
+
+  incomeSources: {
+    to: (s: IncomeSource) => ({
+      id: s.id, name: s.name, category: s.category, amount: s.amount, currency: s.currency, frequency: s.frequency,
+      start_date: s.startDate, end_date: s.endDate ?? null, person: s.person ?? null, active: s.active, notes: s.notes ?? null,
+    }),
+    from: (r): IncomeSource => ({
+      id: r.id, name: r.name, category: r.category, amount: num(r.amount), currency: r.currency, frequency: r.frequency,
+      startDate: r.start_date, endDate: r.end_date ?? undefined, person: r.person ?? undefined,
+      active: r.active ?? true, notes: r.notes ?? undefined,
     }),
   },
 }

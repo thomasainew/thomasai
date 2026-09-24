@@ -819,3 +819,46 @@ ${JSON.stringify(data)}`
   })
   return String(answer.answer ?? '').trim()
 }
+
+// ---------------------------------------------------------------------------
+// AI Employees — configurable named characters with their own role and
+// knowledge area (see src/pages/AIEmployees.tsx). Text-only for now: no live
+// voice and no live web research, both of which need a provider/key the user
+// has not chosen yet — see src/pages/AIEmployees.tsx for that note.
+// ---------------------------------------------------------------------------
+
+export interface EmployeePersona {
+  name: string
+  role: string
+  personality?: string
+  knowledgeArea?: string
+  /** Reply in this language when possible, e.g. 'English', 'Malayalam', 'Arabic', 'Hindi'. */
+  language?: string
+}
+
+export async function askEmployee(
+  employee: EmployeePersona,
+  message: string,
+  facts: unknown,
+  history: AskTurn[] = [],
+  signal?: AbortSignal,
+): Promise<string> {
+  const prior = history.slice(-6).map((t) => `Q: ${t.question}\nA: ${t.answer}`).join('\n\n')
+  const prompt = `You are ${employee.name}, ${employee.role}, an AI employee inside a family finance app called
+Cloud Basket. ${employee.personality ? `Personality: ${employee.personality}.` : ''} ${employee.knowledgeArea ? `Your knowledge area: ${employee.knowledgeArea}.` : ''}
+
+Ground every figure in the DATA below — this person's own financial records. Never invent a number,
+date or fact that is not in DATA or something you are certain of as general knowledge; when asked
+about live/current external information (rates, prices, news) that is not in DATA, say plainly that
+you do not have live access to it right now, rather than guessing.
+${employee.language ? `Reply in ${employee.language} where you reasonably can.` : ''}
+Two to four sentences, plain text, no markdown headings.
+
+${prior ? `EARLIER IN THIS CONVERSATION:\n${prior}\n\n` : ''}MESSAGE: ${message}
+
+DATA:
+${JSON.stringify(facts)}`
+
+  const answer = await callGemini<string>({ parts: [{ text: prompt }], temperature: 0.2, signal })
+  return String(answer).trim()
+}

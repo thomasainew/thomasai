@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
-  BarChart3, CalendarDays, CreditCard, FileText, FolderTree, Gauge, Gem, Home, Landmark, Scale,
-  MinusCircle, PiggyBank, PlusCircle, Settings as SettingsIcon, ShoppingBag, ShoppingCart, Sparkles, StickyNote, Tags, Users, Wallet,
+  BarChart3, Bot, CalendarDays, CreditCard, FileText, FolderTree, Gauge, Gem, Home, Landmark, LayoutDashboard, Scale,
+  MinusCircle, PiggyBank, PlusCircle, ReceiptText, Repeat, Settings as SettingsIcon, ShoppingBag, ShoppingCart,
+  Sparkles, StickyNote, Tags, TrendingUp, Users, Wallet,
 } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { docStatus } from '@/lib/selectors'
@@ -12,13 +13,17 @@ import { canOpen } from '@/lib/access'
 import { CloudBasketMark } from '@/components/CloudBasketMark'
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: Home, end: true },
+  { to: '/', label: 'My Financial Status', icon: Home, end: true },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/accounts', label: 'Accounts', icon: Wallet },
   { to: '/income', label: 'Income', icon: PlusCircle },
+  { to: '/income-planning', label: 'Income Planning', icon: Repeat },
   { to: '/expenses', label: 'Expenses', icon: MinusCircle },
   { to: '/expense-report', label: 'Expense Report', icon: ShoppingBag },
   { to: '/budget', label: 'Budget', icon: Gauge },
   { to: '/loans', label: 'Loans', icon: Landmark },
+  { to: '/forecast', label: 'Financial Forecast', icon: TrendingUp },
+  { to: '/installments', label: 'Installments', icon: ReceiptText },
   { to: '/assets', label: 'Assets & Properties', icon: Gem },
   { to: '/profit-loss', label: 'Monthly P&L', icon: Scale },
   { to: '/people', label: 'People', icon: Users },
@@ -32,6 +37,7 @@ const NAV = [
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/calendar', label: 'Calendar', icon: CalendarDays },
   { to: '/ai-advisor', label: 'Family Advisor', icon: Sparkles },
+  { to: '/ai-employees', label: 'AI Employees', icon: Bot },
   { to: '/settings', label: 'Settings', icon: SettingsIcon },
 ] as const
 

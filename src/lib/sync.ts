@@ -1,6 +1,6 @@
 import { db } from '@/lib/supabase'
-import { MAPPERS, TABLES, V2_COLUMNS, V2_TABLES, settingsMapper, type Collection } from '@/lib/mappers'
-import type { HouseholdMember, Settings } from '@/types'
+import { MAPPERS, TABLES, V2_COLUMNS, V2_TABLES, V3_COLUMNS, V3_TABLES, settingsMapper, type Collection } from '@/lib/mappers'
+import type { HouseholdMember, Settings, VerificationAttempt } from '@/types'
 import { SETTINGS } from '@/data/seed'
 
 /** Every syncable collection. Backups and pushes both derive from this. */
@@ -29,16 +29,20 @@ export interface RemoteData {
   assetValuations: any[]
   goldRates: any[]
   budgetItems: any[]
+  verificationQuestions: any[]
+  incomeSources: any[]
 }
 
 // ---------------------------------------------------------------------------
-// Session context. Two facts decide how every read and write behaves:
+// Session context. Key facts decide how every read and write behaves:
 //  * schemaV2  — has migration 0015 been run on this database?
+//  * schemaV3  — has migration 0016 (security verification) been run?
 //  * ownerId   — whose data this is. A family member reads and writes the
 //                household OWNER's rows (the database decides what they may do).
 // ---------------------------------------------------------------------------
 export interface SessionContext {
   schemaV2: boolean
+  schemaV3: boolean
   ownerId: string
   /** Set when the signed-in user is a household member rather than the owner. */
   membership: HouseholdMember | null
@@ -46,34 +50,43 @@ export interface SessionContext {
   inactive: boolean
 }
 
-const ctx: { schemaV2: boolean; ownerId: string | null } = { schemaV2: false, ownerId: null }
+const ctx: { schemaV2: boolean; schemaV3: boolean; ownerId: string | null } = { schemaV2: false, schemaV3: false, ownerId: null }
 
 export const isSchemaV2 = () => ctx.schemaV2
+export const isSchemaV3 = () => ctx.schemaV3
 
 /** Work out the schema version and whose data the signed-in user is looking at. */
 export async function resolveSession(userId: string): Promise<SessionContext> {
   const client = db()
 
   const version = await client.from('schema_info').select('version').maybeSingle()
-  let schemaV2 = !version.error && (version.data?.version ?? 0) >= 15
+  const v = version.error ? 0 : (version.data?.version ?? 0)
+  let schemaV2 = v >= 15
+  let schemaV3 = v >= 16
   // The version row can be hidden (row level security with no policy, or a stale API
-  // cache). A second, independent probe: if a v2-only table answers, the migration ran.
+  // cache). A second, independent probe: if a v2/v3-only table answers, the migration ran.
   if (!schemaV2) {
     const probe = await client.from('household_members').select('member_id').limit(1)
     schemaV2 = !probe.error
   }
+  if (!schemaV3) {
+    const probe = await client.from('verification_questions').select('id').limit(1)
+    schemaV3 = !probe.error
+  }
   ctx.schemaV2 = schemaV2
+  ctx.schemaV3 = schemaV3
   ctx.ownerId = userId
 
-  if (!schemaV2) return { schemaV2, ownerId: userId, membership: null, inactive: false }
+  if (!schemaV2) return { schemaV2, schemaV3, ownerId: userId, membership: null, inactive: false }
 
   const mem = await client.from('household_members').select('*').eq('member_id', userId).maybeSingle()
-  if (mem.error || !mem.data) return { schemaV2, ownerId: userId, membership: null, inactive: false }
+  if (mem.error || !mem.data) return { schemaV2, schemaV3, ownerId: userId, membership: null, inactive: false }
 
   const m = mem.data
   ctx.ownerId = m.owner_id
   return {
     schemaV2,
+    schemaV3,
     ownerId: m.owner_id,
     inactive: !m.active,
     membership: {
@@ -91,13 +104,14 @@ export async function resolveSession(userId: string): Promise<SessionContext> {
 
 /** Drop columns / tables the database does not have yet, so a write never fails on them. */
 function shapeRow(collection: Collection, row: Record<string, any>) {
-  if (ctx.schemaV2) return row
   const out = { ...row }
-  for (const col of V2_COLUMNS[collection] ?? []) delete out[col]
+  if (!ctx.schemaV2) for (const col of V2_COLUMNS[collection] ?? []) delete out[col]
+  if (!ctx.schemaV3) for (const col of V3_COLUMNS[collection] ?? []) delete out[col]
   return out
 }
 
-const activeCollections = () => COLLECTIONS.filter((c) => ctx.schemaV2 || !V2_TABLES.includes(c))
+const activeCollections = () =>
+  COLLECTIONS.filter((c) => (ctx.schemaV2 || !V2_TABLES.includes(c)) && (ctx.schemaV3 || !V3_TABLES.includes(c)))
 
 /** Read every table the signed-in user may see. RLS scopes the rows. */
 export async function pullAll(): Promise<RemoteData> {
@@ -128,15 +142,18 @@ export async function pullAll(): Promise<RemoteData> {
 
 const owner = (fallback: string) => ctx.ownerId ?? fallback
 
+const tableMissing = (collection: Collection) =>
+  (!ctx.schemaV2 && V2_TABLES.includes(collection)) || (!ctx.schemaV3 && V3_TABLES.includes(collection))
+
 export async function upsertRow(collection: Collection, item: any, userId: string) {
-  if (!ctx.schemaV2 && V2_TABLES.includes(collection)) return // table does not exist yet
+  if (tableMissing(collection)) return // table does not exist yet
   const row = shapeRow(collection, { ...MAPPERS[collection].to(item), user_id: owner(userId) })
   const { error } = await db().from(TABLES[collection]).upsert(row)
   if (error) throw error
 }
 
 export async function deleteRow(collection: Collection, id: string) {
-  if (!ctx.schemaV2 && V2_TABLES.includes(collection)) return
+  if (tableMissing(collection)) return
   const { error } = await db().from(TABLES[collection]).delete().eq('id', id)
   if (error) throw error
 }
@@ -201,13 +218,33 @@ export type FamilyAction =
   | { action: 'resetPassword'; memberId: string; password: string }
   | { action: 'remove'; memberId: string }
 
-export async function familyAdmin(payload: FamilyAction) {
-  const { data, error } = await db().functions.invoke('family-admin', { body: payload })
+/** Call a Supabase edge function, surfacing the { error } body it returns on failure. */
+export async function invokeFunction<T = any>(name: string, payload: Record<string, unknown>): Promise<T> {
+  const { data, error } = await db().functions.invoke(name, { body: payload })
   if (error) {
-    // The function returns { error } with a useful message; surface it.
     const detail = await (error as any).context?.json?.().catch(() => null)
     throw new Error(detail?.error ?? error.message)
   }
   if ((data as any)?.error) throw new Error((data as any).error)
-  return data
+  return data as T
+}
+
+export async function familyAdmin(payload: FamilyAction) {
+  return invokeFunction('family-admin', payload)
+}
+
+// ---------------------------------------------------------------------------
+// Security verification (step-2 login). Challenge/check go through the
+// `security-verify` edge function (see supabase/functions/security-verify) so
+// the correct answer never reaches the browser before it answers. The log of
+// past attempts is read directly — RLS restricts it to the household owner.
+// ---------------------------------------------------------------------------
+export async function listVerificationAttempts(): Promise<VerificationAttempt[]> {
+  if (!ctx.schemaV3) return []
+  const { data, error } = await db().from('verification_attempts').select('*').order('at', { ascending: false }).limit(200)
+  if (error) throw error
+  return (data ?? []).map((r: any) => ({
+    id: r.id, memberId: r.member_id, memberName: r.member_name ?? 'Unknown', questionId: r.question_id ?? '',
+    questionText: r.question_text ?? '', selectedPersonId: r.selected_person_id ?? '', correct: Boolean(r.correct), at: r.at,
+  }))
 }

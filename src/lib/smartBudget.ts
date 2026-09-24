@@ -186,6 +186,7 @@ function billCandidates(c: BudgetContext): Candidate[] {
 function scheduleCandidates(c: BudgetContext): Candidate[] {
   const out: Candidate[] = []
   for (const n of c.notes) {
+    if (n.autoAddToBudget === false) continue
     if (n.done && !n.schedule?.length) continue
     for (const i of n.schedule ?? []) {
       // ONLY the instalment due this month — never the whole fee.
@@ -218,6 +219,7 @@ function documentCandidates(c: BudgetContext): Candidate[] {
 function noteCandidates(c: BudgetContext): Candidate[] {
   const out: Candidate[] = []
   for (const n of c.notes) {
+    if (n.autoAddToBudget === false) continue
     if (n.done || n.schedule?.length) continue // schedules are handled per instalment
     if (!n.dueDate || month(n.dueDate) !== c.month) continue
     const ex = extractCommitment(n, c.people)

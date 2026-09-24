@@ -61,13 +61,13 @@ export function StatusTab() {
 
       <Card>
         <CardHead title="Financial status labels" sub="Three photos for three situations. Names and thresholds are yours to edit — they are personal dashboard labels, not official classifications." />
-        <div className="px-5 pb-5 grid gap-4 lg:grid-cols-3">
-          {tiers.map((t) => (
+        <div className="px-5 pb-5 grid gap-4 lg:grid-cols-4">
+          {[...tiers].sort((a, b) => a.from - b.from).map((t, i) => (
             <div key={t.key} className={`rounded-xl border p-4 space-y-3 ${cur.tier.key === t.key ? 'border-brand-400 bg-brand-50/40' : 'border-[#e2e8f0]'}`}>
               {cur.tier.key === t.key && <span className="chip bg-brand-600 text-white">Current</span>}
               <Field label="Label"><input className="input" value={t.label} onChange={(e) => setTier(t.key, { label: e.target.value })} /></Field>
-              <Field label={t.key === 'poor' ? 'Starts at score' : 'Starts at score (0–100)'}>
-                <input className="input" type="number" min={0} max={100} disabled={t.key === 'poor'} value={t.from} onChange={(e) => setTier(t.key, { from: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
+              <Field label={i === 0 ? 'Starts at score' : 'Starts at score (0–100)'}>
+                <input className="input" type="number" min={0} max={100} disabled={i === 0} value={t.from} onChange={(e) => setTier(t.key, { from: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
               </Field>
               <Photo src={t.photo} label="Upload photo" onPick={(f) => pick(f, (u) => setTier(t.key, { photo: u }))} onClear={() => setTier(t.key, { photo: undefined })} />
             </div>
@@ -87,7 +87,7 @@ export function StatusTab() {
           ))}
           <div className="sm:col-span-2 text-[12px] text-slate-600 leading-relaxed space-y-1">
             <p>Four equal parts, 25 points each: <b>available funds</b> (months of spending covered, 6+ is full marks), <b>net worth</b> (compared with a year of spending, 5+ years is full marks), <b>saving</b> (share of income kept, 30%+ is full marks) and <b>debt burden</b> (share of income going to debt payments, 0% is full marks).</p>
-            <p>Asset value alone cannot make the label “{tiers[2].label}”: cash, saving and debt count just as much. Averages use your last few months of income and spending.</p>
+            <p>Asset value alone cannot make the label “{[...tiers].sort((a, b) => b.from - a.from)[0].label}”: cash, saving and debt count just as much. Averages use your last few months of income and spending.</p>
             {cur.caveats.length > 0 && <p className="text-amber-700"><b>Incomplete right now:</b> {cur.caveats.join(' ')}</p>}
           </div>
         </div>

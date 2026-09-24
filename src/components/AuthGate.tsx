@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AlertCircle, Loader2 } from 'lucide-react'
 import { hasSupabase, supabase } from '@/lib/supabase'
-import { pullAll, resolveSession } from '@/lib/sync'
+import { pullAll, resolveSession, type SessionContext } from '@/lib/sync'
+import { verificationRequired } from '@/lib/security'
 import { SignInScreen } from '@/components/SignInScreen'
+import { SecurityVerification } from '@/components/SecurityVerification'
 import { stopAnalytics } from '@/lib/analytics'
 import { setRobots } from '@/lib/siteConfig'
 import { useStore } from '@/store/useStore'
 
-type Phase = 'checking' | 'signed-out' | 'loading-data' | 'ready'
+type Phase = 'checking' | 'signed-out' | 'verifying' | 'loading-data' | 'ready'
+
+/** Has this browser tab already passed step 2 for this user? Cleared on sign-out / new tab. */
+const verifiedKey = (userId: string) => `cb_verified_${userId}`
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const setSession = useStore((s) => s.setSession)
   const hydrate = useStore((s) => s.hydrate)
   const setContext = useStore((s) => s.setContext)
   const schemaV2 = useStore((s) => s.schemaV2)
+  const schemaV3 = useStore((s) => s.schemaV3)
   const [notice, setNotice] = useState<string | null>(null)
   const clearLocalData = useStore((s) => s.clearLocalData)
   const [phase, setPhase] = useState<Phase>(hasSupabase ? 'checking' : 'ready')
@@ -22,12 +28,34 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // INITIAL_SESSION callback and against TOKEN_REFRESHED re-pulling everything
   // every hour.
   const loadedFor = useRef<string | null>(null)
+  // The resolved session, held while step 2 (security verification) is shown.
+  const pendingSession = useRef<SessionContext | null>(null)
+  const finishRef = useRef<((session: SessionContext) => Promise<void>) | null>(null)
 
   // ---- watch the Supabase session -----------------------------------------
   useEffect(() => {
     if (!hasSupabase || !supabase) return
 
     let cancelled = false
+
+    /** Pull and hydrate every table for a resolved (and, if needed, verified) session. */
+    const finish = async (session: SessionContext) => {
+      if (cancelled) return
+      setContext(session)
+      try {
+        const data = await pullAll()
+        if (cancelled) return
+        hydrate(data)
+        setError(null)
+        setPhase('ready')
+      } catch (e) {
+        if (cancelled) return
+        loadedFor.current = null
+        setError(e instanceof Error ? e.message : String(e))
+        setPhase('ready') // fall through to the app on cached local data
+      }
+    }
+    finishRef.current = finish
 
     const apply = async (userId: string | null, email: string | null) => {
       if (cancelled) return
@@ -66,12 +94,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
           await supabase!.auth.signOut()
           return
         }
-        setContext(session)
-        const data = await pullAll()
-        if (cancelled) return
-        hydrate(data)
-        setError(null)
-        setPhase('ready')
+
+        // Step 2: a security question, once per browser tab per sign-in.
+        const already = sessionStorage.getItem(verifiedKey(userId)) === '1'
+        if (!already) {
+          let required = false
+          try { required = await verificationRequired() } catch { required = false } // fail open — never brick sign-in
+          if (cancelled) return
+          if (required) {
+            pendingSession.current = session
+            setPhase('verifying')
+            return
+          }
+        }
+        await finish(session)
       } catch (e) {
         if (cancelled) return
         // Let the next event retry rather than pinning a failed load.
@@ -122,6 +158,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
       </>
     )
 
+  if (phase === 'verifying')
+    return (
+      <SecurityVerification
+        onVerified={() => {
+          const userId = useStore.getState().userId
+          if (userId) sessionStorage.setItem(verifiedKey(userId), '1')
+          const session = pendingSession.current
+          if (!session) return
+          setPhase('loading-data')
+          finishRef.current?.(session)
+        }}
+        onSignOut={() => supabase?.auth.signOut()}
+      />
+    )
+
   return (
     <>
       {hasSupabase && !schemaV2 && (
@@ -132,6 +183,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
             <p className="text-[11.5px] text-brand-800 mt-0.5">
               Run <b>supabase/migrations/0015_cloudbasket360_v2.sql</b> in the Supabase SQL Editor to switch on
               the new features. Until then everything keeps working as before.
+            </p>
+          </div>
+        </div>
+      )}
+      {hasSupabase && schemaV2 && !schemaV3 && (
+        <div className="fixed bottom-4 left-4 z-50 card px-4 py-3 max-w-sm bg-brand-50 border-brand-200 flex items-start gap-2.5">
+          <AlertCircle size={16} className="text-brand-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[12.5px] font-bold text-brand-900">Security Verification not set up yet</p>
+            <p className="text-[11.5px] text-brand-800 mt-0.5">
+              Run <b>supabase/migrations/0016_security_verification.sql</b> and deploy{' '}
+              <b>supabase functions deploy security-verify</b> to turn on the step-2 login question. Everything else
+              keeps working as before.
             </p>
           </div>
         </div>
