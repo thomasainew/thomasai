@@ -20,7 +20,7 @@ const addMonth = (ym: string, n: number) => {
 
 export default function FinancialStatus() {
   const s = useStore()
-  const { settings, accounts, transactions, transfers, loans, assets, bills, documents, notes, budgetItems, people, incomeSources } = s
+  const { settings, accounts, transactions, transfers, loans, assets, bills, documents, notes, budgetItems, budgets, people, incomeSources } = s
   const reporting = settings.baseCurrency
   const toReport = (a: number, c: Currency) => convert(a, c, reporting)
   const show = (v: number) => money(convert(v, reporting, 'AED'))
@@ -41,7 +41,8 @@ export default function FinancialStatus() {
       const loanEmi = sum('loan')
       const installments = sum('schedule')
       const otherPlanned = sum('bill') + sum('document') + sum('note') + sum('manual')
-      const budget = toReport(settings.monthlyBudget, settings.baseCurrency)
+      // What you have actually planned in Budget Categories, added up — not the separate flat Total Budget target.
+      const budget = budgets.reduce((n, b) => n + toReport(b.budget, b.currency ?? 'AED'), 0)
       const totalNeed = budget + loanEmi + installments + otherPlanned
       const fromSources = incomeForMonth(incomeSources, m, toReport)
       const expectedIncome = fromSources > 0 ? fromSources
@@ -54,7 +55,7 @@ export default function FinancialStatus() {
     const prev = build(addMonth(month, -1))
     return { now, prev }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loans, bills, documents, notes, budgetItems, accounts, settings, incomeSources, snap.monthlyIncome, month])
+  }, [loans, bills, documents, notes, budgetItems, budgets, accounts, settings, incomeSources, snap.monthlyIncome, month])
 
   const { tier, score, tiers } = snap.status
   const sortedTiers = [...tiers].sort((a, b) => a.from - b.from)

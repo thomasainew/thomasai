@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeftRight } from 'lucide-react'
 import { Modal, Field } from '@/components/ui/Modal'
 import { useStore } from '@/store/useStore'
-import { accountLabel } from '@/lib/accounting'
+import { accountLabel, isAssetAccount } from '@/lib/accounting'
 import { money, TODAY } from '@/lib/format'
 import type { Transfer, TransferKind, TransferPurpose } from '@/types'
 
@@ -57,7 +57,7 @@ export function TransferModal({
 }) {
   const { accounts, loans, addTransfer, updateTransfer } = useStore()
 
-  const asset = useMemo(() => accounts.filter((a) => a.type === 'bank' || a.type === 'cash'), [accounts])
+  const asset = useMemo(() => accounts.filter((a) => isAssetAccount(a.type)), [accounts])
   const cards = useMemo(() => accounts.filter((a) => a.type === 'card'), [accounts])
   const loanAccounts = useMemo(() => accounts.filter((a) => a.type === 'loan'), [accounts])
   const activeLoans = loans.filter((l) => l.status !== 'Closed')
@@ -163,7 +163,7 @@ export function TransferModal({
   const fromOptions = mode === 'borrow' ? loanAccounts : asset
   const toOptions =
     mode === 'move'
-      ? accounts.filter((a) => a.id !== fromId && (a.type === 'bank' || a.type === 'cash'))
+      ? accounts.filter((a) => a.id !== fromId && isAssetAccount(a.type))
       : mode === 'card'
         ? cards
         : mode === 'borrow'

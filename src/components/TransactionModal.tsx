@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Camera, Info, Keyboard, Loader2, Sparkles, Wand2, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  CalendarDays, Camera, Check, ChevronLeft, ChevronRight, Info, Keyboard, Loader2, Sparkles, Tag, Wand2, X,
+} from 'lucide-react'
 import { Modal, Field } from '@/components/ui/Modal'
 import { BillScanModal } from '@/components/BillScanModal'
 import { TransferModal, type TransferPreset } from '@/components/TransferModal'
@@ -10,9 +12,11 @@ import {
 } from '@/lib/categorise'
 import { TODAY, fmtDate } from '@/lib/format'
 import { categoriesOf, findCategoryByName, statementFor, subcategoriesOf } from '@/lib/selectors'
-import { accountLabel, depositAccounts, methodFor, paymentAccounts } from '@/lib/accounting'
+import { depositAccounts, methodFor, paymentAccounts } from '@/lib/accounting'
+import { styleFor, maskNumber } from '@/data/banks'
 import {
-  PACK_UNITS, WEIGHT_UNITS, type Currency, type PackUnit, type Transaction, type TxnKind, type TxnType, type WeightUnit,
+  PACK_UNITS, WEIGHT_UNITS, type Account, type Currency, type PackUnit, type Person, type Transaction, type TxnKind,
+  type TxnType, type WeightUnit,
 } from '@/types'
 
 /** Used only until the user creates categories of their own. */
@@ -251,6 +255,23 @@ export function TransactionModal({
       ? statementFor(form.date, account.statementDay, account.dueDay)
       : null
 
+  // Quick "tag" picks — real items you have bought before in this category, newest first.
+  // Never fabricated: drawn straight from your own transaction history.
+  const tagOptions = useMemo(() => {
+    if (isIncome || !form.category) return []
+    const seen = new Set<string>()
+    const out: Transaction[] = []
+    for (const t of transactions) {
+      if (t.type !== 'expense' || (t.kind ?? 'normal') !== 'normal' || t.category !== form.category) continue
+      const key = (t.brand || t.description).trim().toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      out.push(t)
+      if (out.length >= 10) break
+    }
+    return out
+  }, [transactions, isIncome, form.category])
+
   const amountValid = Number(form.amount) > 0
   const canSave = form.description.trim().length > 0 && amountValid && Boolean(form.accountId)
 
@@ -374,6 +395,10 @@ export function TransactionModal({
             </div>
           )}
 
+          <Field label="Person">
+            <PersonPicker people={people} fallback={DEFAULT_PEOPLE} value={form.person} onChange={(n) => set('person', n)} />
+          </Field>
+
           <Field label="Description">
             <div className="relative">
               <input
@@ -489,19 +514,24 @@ export function TransactionModal({
               </select>
             </Field>
 
+            {tagOptions.length > 0 && (
+              <Field label="Tag (optional)" className="col-span-2">
+                <TagPicker
+                  options={tagOptions}
+                  icon={activeCat?.icon}
+                  onPick={(t) => setForm((f) => ({ ...f, description: t.description, brand: t.brand ?? f.brand, store: t.store ?? f.store }))}
+                />
+              </Field>
+            )}
+
             <Field label={isIncome ? 'Deposit to' : 'Paid from'} className="col-span-2">
-              <select className="input" value={form.accountId} onChange={(e) => set('accountId', e.target.value)}>
-                {eligibleAccounts.length === 0 && (
-                  <option value="">
-                    {isIncome ? 'No bank or cash account yet — add one first' : 'No accounts yet — add one first'}
-                  </option>
-                )}
-                {eligibleAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {accountLabel(a)}
-                  </option>
-                ))}
-              </select>
+              {eligibleAccounts.length === 0 ? (
+                <p className="text-[12.5px] text-slate-400 rounded-xl bg-slate-50 px-3.5 py-2.5">
+                  {isIncome ? 'No bank or cash account yet — add one first.' : 'No accounts yet — add one first.'}
+                </p>
+              ) : (
+                <AccountPicker accounts={eligibleAccounts} value={form.accountId} onChange={(id) => set('accountId', id)} />
+              )}
               <p className="text-[11px] text-slate-400 mt-1">
                 {isIncome
                   ? 'This account\'s balance increases by the amount above.'
@@ -618,70 +648,57 @@ export function TransactionModal({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4">
-            {!isIncome && (
-              <>
-                <Field label="Store (optional)">
+          {!isIncome && (
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="Store (optional)">
+                <input
+                  className="input"
+                  value={form.store}
+                  onChange={(e) => set('store', e.target.value)}
+                  placeholder="e.g. Carrefour"
+                />
+              </Field>
+              <Field label="Weight (optional)">
+                <div className="flex gap-2">
                   <input
-                    className="input"
-                    value={form.store}
-                    onChange={(e) => set('store', e.target.value)}
-                    placeholder="e.g. Carrefour"
+                    className="input flex-1"
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    value={form.weight}
+                    onChange={(e) => set('weight', e.target.value)}
+                    placeholder="e.g. 10"
                   />
-                </Field>
-                <Field label="Weight (optional)">
-                  <div className="flex gap-2">
-                    <input
-                      className="input flex-1"
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      value={form.weight}
-                      onChange={(e) => set('weight', e.target.value)}
-                      placeholder="e.g. 10"
-                    />
-                    <select
-                      className="input w-20"
-                      value={form.weightUnit}
-                      onChange={(e) => set('weightUnit', e.target.value)}
-                    >
-                      {WEIGHT_UNITS.map((u) => (
-                        <option key={u}>{u}</option>
-                      ))}
-                    </select>
-                  </div>
-                </Field>
-              </>
-            )}
-            {!isIncome && (
-              <>
-                <Field label="Brand (optional)">
-                  <input className="input" value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="e.g. Almarai" />
-                </Field>
-                <Field label="Quantity (optional)">
-                  <input className="input" type="number" min="0" step="0.01" value={form.qty} onChange={(e) => set('qty', e.target.value)} placeholder="e.g. 2" />
-                </Field>
-                <Field label="Pack size (optional)" className="col-span-2">
-                  <div className="flex gap-2">
-                    <input className="input flex-1" type="number" min="0" step="0.001" value={form.packSize} onChange={(e) => set('packSize', e.target.value)} placeholder="e.g. 500" />
-                    <select className="input w-24" value={form.packUnit} onChange={(e) => set('packUnit', e.target.value)}>
-                      {PACK_UNITS.map((u) => <option key={u}>{u}</option>)}
-                    </select>
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Size of ONE pack. Used to compare prices per kg / litre / unit in the Price Tracker.
-                  </p>
-                </Field>
-              </>
-            )}
-            <Field label="Person" className={isIncome ? 'col-span-2' : ''}>
-              <select className="input" value={form.person} onChange={(e) => set('person', e.target.value)}>
-                {(people.length ? people.map((p) => p.name) : DEFAULT_PEOPLE).map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </select>
-            </Field>
-          </div>
+                  <select
+                    className="input w-20"
+                    value={form.weightUnit}
+                    onChange={(e) => set('weightUnit', e.target.value)}
+                  >
+                    {WEIGHT_UNITS.map((u) => (
+                      <option key={u}>{u}</option>
+                    ))}
+                  </select>
+                </div>
+              </Field>
+              <Field label="Brand (optional)">
+                <input className="input" value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="e.g. Almarai" />
+              </Field>
+              <Field label="Quantity (optional)">
+                <input className="input" type="number" min="0" step="0.01" value={form.qty} onChange={(e) => set('qty', e.target.value)} placeholder="e.g. 2" />
+              </Field>
+              <Field label="Pack size (optional)" className="col-span-2">
+                <div className="flex gap-2">
+                  <input className="input flex-1" type="number" min="0" step="0.001" value={form.packSize} onChange={(e) => set('packSize', e.target.value)} placeholder="e.g. 500" />
+                  <select className="input w-24" value={form.packUnit} onChange={(e) => set('packUnit', e.target.value)}>
+                    {PACK_UNITS.map((u) => <option key={u}>{u}</option>)}
+                  </select>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Size of ONE pack. Used to compare prices per kg / litre / unit in the Price Tracker.
+                </p>
+              </Field>
+            </div>
+          )}
 
           <Field label="Notes (optional)">
             <input
@@ -721,5 +738,138 @@ export function TransactionModal({
         transactions={transactions}
       />
     </>
+  )
+}
+
+/** Horizontal, scrollable strip of picker tiles with arrow buttons at each end. */
+function ScrollRow({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const scrollBy = (dx: number) => ref.current?.scrollBy({ left: dx, behavior: 'smooth' })
+  return (
+    <div className="flex items-center gap-1">
+      <button type="button" onClick={() => scrollBy(-180)} className="shrink-0 h-8 w-8 grid place-items-center rounded-full border border-[#e2e8f0] text-slate-400 hover:bg-slate-50 hover:text-slate-600 cursor-pointer">
+        <ChevronLeft size={15} />
+      </button>
+      <div ref={ref} className="flex-1 min-w-0 flex gap-2.5 overflow-x-auto scroll-thin scroll-smooth py-1">
+        {children}
+      </div>
+      <button type="button" onClick={() => scrollBy(180)} className="shrink-0 h-8 w-8 grid place-items-center rounded-full border border-[#e2e8f0] text-slate-400 hover:bg-slate-50 hover:text-slate-600 cursor-pointer">
+        <ChevronRight size={15} />
+      </button>
+    </div>
+  )
+}
+
+/** Visual "who is this for" picker — real people from the People library, with their own photos. */
+function PersonPicker({
+  people, fallback, value, onChange,
+}: {
+  people: Person[]
+  fallback: string[]
+  value: string
+  onChange: (name: string) => void
+}) {
+  const items = people.length ? people : fallback.map((n) => ({ id: n, name: n, color: '#94a3b8', photo: undefined }) as Pick<Person, 'id' | 'name' | 'color' | 'photo'>)
+  return (
+    <ScrollRow>
+      {items.map((p) => {
+        const active = value === p.name
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onChange(p.name)}
+            className="shrink-0 flex flex-col items-center gap-1 w-16 cursor-pointer group"
+          >
+            <span className="relative">
+              {p.photo ? (
+                <img src={p.photo} alt={p.name} className={`h-12 w-12 rounded-full object-cover ring-2 transition ${active ? 'ring-brand-600' : 'ring-transparent group-hover:ring-brand-200'}`} />
+              ) : (
+                <span
+                  className={`h-12 w-12 rounded-full grid place-items-center text-white font-bold text-[15px] ring-2 transition ${active ? 'ring-brand-600' : 'ring-transparent group-hover:ring-brand-200'}`}
+                  style={{ background: p.color }}
+                >
+                  {p.name.charAt(0).toUpperCase()}
+                </span>
+              )}
+              {active && (
+                <span className="absolute -bottom-0.5 -right-0.5 h-4.5 w-4.5 rounded-full bg-brand-600 text-white grid place-items-center ring-2 ring-white">
+                  <Check size={10} strokeWidth={3} />
+                </span>
+              )}
+            </span>
+            <span className={`text-[11px] font-semibold truncate w-full text-center ${active ? 'text-brand-700' : 'text-slate-600'}`}>{p.name}</span>
+          </button>
+        )
+      })}
+    </ScrollRow>
+  )
+}
+
+/** Visual "paid from / deposit to" picker — every eligible account drawn as a small bank-styled tile. */
+function AccountPicker({
+  accounts, value, onChange,
+}: {
+  accounts: Account[]
+  value: string
+  onChange: (id: string) => void
+}) {
+  return (
+    <ScrollRow>
+      {accounts.map((a) => {
+        const active = value === a.id
+        const style = styleFor(a)
+        const number = maskNumber(a.details, a.type === 'card' ? 'card' : 'account')
+        return (
+          <button
+            key={a.id}
+            type="button"
+            onClick={() => onChange(a.id)}
+            className={`shrink-0 w-36 rounded-xl p-2.5 text-left cursor-pointer transition ring-2 ${active ? 'ring-brand-600' : 'ring-transparent hover:ring-brand-200'}`}
+            style={{ background: style.bg, color: style.fg }}
+          >
+            <div className="flex items-start justify-between gap-1">
+              <span className="text-[12px] font-black tracking-tight leading-tight truncate">{style.mark || a.name}</span>
+              {active && (
+                <span className="shrink-0 h-4 w-4 rounded-full bg-white/90 grid place-items-center">
+                  <Check size={10} strokeWidth={3} className="text-brand-600" />
+                </span>
+              )}
+            </div>
+            <p className="text-[10px] opacity-80 truncate mt-0.5">{a.name}</p>
+            {number && <p className="text-[10.5px] font-mono opacity-90 mt-1.5 tracking-wide">{number}</p>}
+          </button>
+        )
+      })}
+    </ScrollRow>
+  )
+}
+
+/** Quick-fill "tag" picks — real items bought before in this category, never fabricated photos. */
+function TagPicker({
+  options, icon, onPick,
+}: {
+  options: Transaction[]
+  icon?: string
+  onPick: (t: Transaction) => void
+}) {
+  return (
+    <ScrollRow>
+      {options.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onPick(t)}
+          className="shrink-0 w-20 flex flex-col items-center gap-1 rounded-xl border border-[#eef2f8] p-2 hover:border-brand-200 hover:bg-brand-50/30 transition cursor-pointer"
+        >
+          <span className="h-9 w-9 rounded-lg bg-slate-50 grid place-items-center text-[16px] shrink-0">
+            {icon || <Tag size={15} className="text-slate-400" />}
+          </span>
+          <span className="text-[10.5px] font-semibold text-slate-700 text-center leading-tight line-clamp-2">
+            {t.brand || t.description}
+          </span>
+        </button>
+      ))}
+    </ScrollRow>
   )
 }

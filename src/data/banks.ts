@@ -34,6 +34,8 @@ export const BANKS: BankStyle[] = [
   { key: 'kotak', name: 'Kotak Mahindra', mark: 'kotak', bg: 'linear-gradient(135deg,#7f0d13 0%,#ed1c24 60%,#003874 140%)', fg: '#ffffff', accent: '#ffb0b3', match: ['kotak'] },
   { key: 'federal', name: 'Federal Bank', mark: 'Federal Bank', bg: 'linear-gradient(135deg,#00406b 0%,#0072bc 60%,#ffc20e 130%)', fg: '#ffffff', accent: '#ffe08a', match: ['federal'] },
   { key: 'cash', name: 'Cash / Wallet', mark: 'CASH', bg: 'linear-gradient(135deg,#064e3b 0%,#059669 60%,#6ee7b7 130%)', fg: '#ffffff', accent: '#bbf7d0', match: ['cash', 'wallet'] },
+  { key: 'savings', name: 'Savings Account', mark: 'SAVINGS', bg: 'linear-gradient(135deg,#0c4a6e 0%,#0284c7 60%,#7dd3fc 130%)', fg: '#ffffff', accent: '#bae6fd', match: ['savings'] },
+  { key: 'investment', name: 'Investment Account', mark: 'INVEST', bg: 'linear-gradient(135deg,#3b0764 0%,#7e22ce 60%,#d8b4fe 130%)', fg: '#ffffff', accent: '#e9d5ff', match: ['invest', 'investment', 'mutual fund', 'stocks', 'portfolio'] },
   { key: 'generic', name: 'Other bank', mark: '', bg: 'linear-gradient(135deg,#1e293b 0%,#334155 60%,#64748b 130%)', fg: '#ffffff', accent: '#cbd5e1', match: [] },
 ]
 
@@ -52,6 +54,8 @@ export function styleFor(a: { bankStyle?: string; name: string; bank?: string; c
   const guess = detectBank(`${a.name} ${a.bank ?? ''}`)
   if (guess) return guess
   if (a.type === 'cash') return bankByKey('cash')!
+  if (a.type === 'savings') return bankByKey('savings')!
+  if (a.type === 'investment') return bankByKey('investment')!
   return { ...bankByKey('generic')!, bg: `linear-gradient(135deg, ${a.color}, #0f172a)` }
 }
 

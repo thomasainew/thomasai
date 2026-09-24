@@ -310,7 +310,7 @@ export function netWorthParts(input: NetWorthInput, toReport: (amount: number, c
   const sum = (types: AccountType[]) =>
     accounts.filter((a) => types.includes(a.type)).reduce((n, a) => n + toReport(a.balance, a.currency), 0)
 
-  const cashAndBank = sum(['bank', 'cash'])
+  const cashAndBank = sum(['bank', 'cash', 'savings', 'investment'])
   const cardDebt = sum(['card'])
   const loanAccountDebt = sum(['loan'])
   // A loan RECORD linked to a loan ACCOUNT is the same debt — count it once.

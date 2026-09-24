@@ -7,14 +7,18 @@ import type { Account, AccountType, TxnType } from '@/types'
 // Account and Payment Method fields can never disagree with each other again.
 // ============================================================================
 
-/** An expense can be paid from cash/bank, charged to a card, or funded by a loan account. */
+/** Accounts that simply hold money you own — as opposed to debt (card, loan). */
+const ASSET_TYPES: AccountType[] = ['bank', 'cash', 'savings', 'investment']
+export const isAssetAccount = (t: AccountType) => ASSET_TYPES.includes(t)
+
+/** An expense can be paid from cash/bank/savings/investment, charged to a card, or funded by a loan account. */
 export function paymentAccounts(accounts: Account[]) {
-  return accounts.filter((a) => a.type === 'bank' || a.type === 'cash' || a.type === 'card' || a.type === 'loan')
+  return accounts.filter((a) => isAssetAccount(a.type) || a.type === 'card' || a.type === 'loan')
 }
 
-/** Income only ever lands in a bank or cash account. */
+/** Income lands in any account that simply holds money — bank, cash, savings or investment. */
 export function depositAccounts(accounts: Account[]) {
-  return accounts.filter((a) => a.type === 'bank' || a.type === 'cash')
+  return accounts.filter((a) => isAssetAccount(a.type))
 }
 
 /** Short, unambiguous label for an account picker: "FAB Bank ••••8001", "Cash Wallet". */
@@ -26,12 +30,12 @@ export function accountLabel(a: Account) {
 
 /**
  * Balance change a transaction causes on the account it posts to. A card's
- * balance is what you owe, so an expense increases it and bank/cash work the
- * other way round — this is the one place that rule is allowed to live.
+ * balance is what you owe, so an expense increases it and asset accounts work
+ * the other way round — this is the one place that rule is allowed to live.
  */
 export function accountDelta(type: TxnType, accountType: AccountType, amount: number) {
   if (accountType === 'card') return type === 'expense' ? amount : -amount
-  if (accountType === 'bank' || accountType === 'cash') return type === 'expense' ? -amount : amount
+  if (isAssetAccount(accountType)) return type === 'expense' ? -amount : amount
   return 0
 }
 
@@ -39,6 +43,8 @@ export function accountDelta(type: TxnType, accountType: AccountType, amount: nu
  * chosen account so it can never contradict it. */
 export function methodFor(accountType: AccountType) {
   if (accountType === 'cash') return 'Cash'
+  if (accountType === 'savings') return 'Savings Account'
+  if (accountType === 'investment') return 'Investment Account'
   if (accountType === 'card') return 'Credit Card'
   if (accountType === 'loan') return 'Loan'
   return 'Bank Transfer'

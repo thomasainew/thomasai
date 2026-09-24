@@ -1,6 +1,6 @@
 export type Currency = 'AED' | 'INR' | 'USD'
 
-export type AccountType = 'bank' | 'cash' | 'card' | 'loan'
+export type AccountType = 'bank' | 'cash' | 'savings' | 'investment' | 'card' | 'loan'
 
 export interface Account {
   id: string

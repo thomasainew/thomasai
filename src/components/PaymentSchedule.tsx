@@ -54,23 +54,67 @@ export function ScheduleEditor({
       {[...value].sort((a, b) => a.dueDate.localeCompare(b.dueDate)).map((i) => {
         const status = installmentStatus(i, TODAY, (id) => exists.has(id))
         const paid = status === 'Paid'
+        // Hand-marked (no linked transaction) can be toggled here; one settled by a
+        // real expense can only be undone by deleting that transaction elsewhere.
+        const handPaid = paid && !i.paidTxnId
+        const canToggle = !i.paidTxnId
         return (
-          <div key={i.id} className="grid grid-cols-12 gap-2 items-center rounded-xl border border-[#eef2f8] p-2">
-            <input className="input h-9 col-span-12 sm:col-span-3" value={i.label} onChange={(e) => patch(i.id, { label: e.target.value })} placeholder="Label" />
-            <input className="input h-9 col-span-6 sm:col-span-3" type="date" value={i.dueDate} disabled={paid} onChange={(e) => patch(i.id, { dueDate: e.target.value })} />
-            <div className="col-span-6 sm:col-span-3 flex gap-1">
-              <input className="input h-9 flex-1 min-w-0" type="number" min="0" step="0.01" value={i.amount || ''} disabled={paid} onChange={(e) => patch(i.id, { amount: Number(e.target.value) || 0 })} placeholder="Amount" />
-              <select className="input h-9 w-[4.2rem] px-1" value={i.currency} onChange={(e) => patch(i.id, { currency: e.target.value as Currency })}>
-                <option>AED</option><option>INR</option><option>USD</option>
-              </select>
+          <div key={i.id} className="rounded-xl border border-[#eef2f8] p-2 space-y-2">
+            <div className="grid grid-cols-12 gap-2 items-center">
+              <input className="input h-9 col-span-12 sm:col-span-3" value={i.label} onChange={(e) => patch(i.id, { label: e.target.value })} placeholder="Label" />
+              <input className="input h-9 col-span-6 sm:col-span-3" type="date" value={i.dueDate} disabled={paid} onChange={(e) => patch(i.id, { dueDate: e.target.value })} />
+              <div className="col-span-6 sm:col-span-3 flex gap-1">
+                <input className="input h-9 flex-1 min-w-0" type="number" min="0" step="0.01" value={i.amount || ''} disabled={paid && !handPaid} onChange={(e) => patch(i.id, { amount: Number(e.target.value) || 0 })} placeholder="Amount" />
+                <select className="input h-9 w-[4.2rem] px-1" value={i.currency} onChange={(e) => patch(i.id, { currency: e.target.value as Currency })}>
+                  <option>AED</option><option>INR</option><option>USD</option>
+                </select>
+              </div>
+              <div className="col-span-8 sm:col-span-2 flex items-center gap-1.5">
+                <Badge tone={tone[status]}>{status}</Badge>
+                <input className="input h-9 w-14 px-2 text-[11px]" type="number" min="0" title="Remind this many days before" value={i.remindDays ?? 7} onChange={(e) => patch(i.id, { remindDays: Number(e.target.value) || 0 })} />
+              </div>
+              <button type="button" onClick={() => onChange(value.filter((x) => x.id !== i.id))} className="col-span-4 sm:col-span-1 h-8 w-8 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer justify-self-end">
+                <Trash2 size={13} />
+              </button>
             </div>
-            <div className="col-span-8 sm:col-span-2 flex items-center gap-1.5">
-              <Badge tone={tone[status]}>{status}</Badge>
-              <input className="input h-9 w-14 px-2 text-[11px]" type="number" min="0" title="Remind this many days before" value={i.remindDays ?? 7} onChange={(e) => patch(i.id, { remindDays: Number(e.target.value) || 0 })} />
-            </div>
-            <button type="button" onClick={() => onChange(value.filter((x) => x.id !== i.id))} className="col-span-4 sm:col-span-1 h-8 w-8 grid place-items-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600 cursor-pointer justify-self-end">
-              <Trash2 size={13} />
-            </button>
+
+            {canToggle && (
+              <div className="flex flex-wrap items-center gap-2 pl-1">
+                <label className="flex items-center gap-1.5 text-[11.5px] text-slate-600 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="accent-brand-600 cursor-pointer"
+                    checked={handPaid}
+                    onChange={(e) =>
+                      patch(i.id, e.target.checked
+                        ? { paidAmount: i.amount, paidDate: i.paidDate ?? TODAY }
+                        : { paidAmount: undefined, paidDate: undefined })
+                    }
+                  />
+                  Already paid (before adding this here)
+                </label>
+                {handPaid && (
+                  <>
+                    <span className="text-[11px] text-slate-400">on</span>
+                    <input
+                      className="input h-8 w-36 text-[12px]"
+                      type="date"
+                      value={i.paidDate ?? TODAY}
+                      onChange={(e) => patch(i.id, { paidDate: e.target.value })}
+                    />
+                    <span className="text-[11px] text-slate-400">amount paid</span>
+                    <input
+                      className="input h-8 w-24 text-[12px]"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={i.paidAmount ?? i.amount}
+                      onChange={(e) => patch(i.id, { paidAmount: Number(e.target.value) || 0 })}
+                    />
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )
       })}

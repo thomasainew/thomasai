@@ -6,7 +6,7 @@ import { Modal, Field } from '@/components/ui/Modal'
 import { TransferModal } from '@/components/TransferModal'
 import { TransactionModal } from '@/components/TransactionModal'
 import { loanActivity } from '@/lib/loanActivity'
-import { accountLabel } from '@/lib/accounting'
+import { accountLabel, isAssetAccount } from '@/lib/accounting'
 import { amortizationSchedule, amortizes } from '@/lib/amortization'
 import { daysLeft, fmtDate, money, pct, toBase, TODAY } from '@/lib/format'
 import { loanSummary } from '@/lib/selectors'
@@ -343,7 +343,7 @@ function LoanModal({
   }
   const [form, setForm] = useState(blank)
   const loanAccounts = accounts.filter((a) => a.type === 'loan')
-  const depositAccounts = accounts.filter((a) => a.type === 'bank' || a.type === 'cash')
+  const depositAccounts = accounts.filter((a) => isAssetAccount(a.type))
   const linked = loanAccounts.find((a) => a.id === form.accountId)
 
   useEffect(() => {

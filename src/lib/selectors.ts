@@ -112,31 +112,34 @@ export function accountTotals(accounts: Account[]) {
     accounts.filter((a) => a.type === type).reduce((acc, a) => acc + toBase(a.balance, a.currency), 0)
   const bank = sum('bank')
   const cash = sum('cash')
+  const savings = sum('savings')
+  const investment = sum('investment')
   const card = sum('card')
   const loan = sum('loan')
   return {
-    bank, cash, card, loan,
-    // Gross is what the four buckets add up to; net treats cards and loans as
+    bank, cash, savings, investment, card, loan,
+    // Gross is what the buckets add up to; net treats cards and loans as
     // the liabilities they are.
-    total: bank + cash + card + loan,
-    net: bank + cash - card - loan,
+    total: bank + cash + savings + investment + card + loan,
+    net: bank + cash + savings + investment - card - loan,
   }
 }
 
-/** Liquid balance = bank + cash, minus card outstanding. */
+/** Liquid balance = every money-you-own account, minus card outstanding. */
 export function liquidBalance(accounts: Account[]) {
   const t = accountTotals(accounts)
-  return t.bank + t.cash - t.card
+  return t.bank + t.cash + t.savings + t.investment - t.card
 }
 
 /**
- * Money you can actually spend right now: bank + cash, full stop. Card debt
- * and loan debt are shown as their own figures rather than netted in here —
- * see the corrections spec, problem 6: a blended balance hides both.
+ * Money you can actually spend right now: bank, cash, savings and investment
+ * accounts, full stop. Card debt and loan debt are shown as their own figures
+ * rather than netted in here — see the corrections spec, problem 6: a blended
+ * balance hides both.
  */
 export function availableMoney(accounts: Account[]) {
   const t = accountTotals(accounts)
-  return t.bank + t.cash
+  return t.bank + t.cash + t.savings + t.investment
 }
 
 /** What you'd have left if every card and loan were paid off today. */
@@ -145,7 +148,7 @@ export function netPosition(accounts: Account[], loans: Loan[]) {
   const loansOutstanding = loans
     .filter((l) => l.status !== 'Closed')
     .reduce((acc, l) => acc + toBase(l.outstanding, l.currency), 0)
-  return t.bank + t.cash - t.card - loansOutstanding
+  return t.bank + t.cash + t.savings + t.investment - t.card - loansOutstanding
 }
 
 export function loanSummary(loans: Loan[]) {

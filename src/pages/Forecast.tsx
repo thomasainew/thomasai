@@ -21,7 +21,7 @@ type View = 'card' | 'table' | 'chart'
 
 export default function Forecast() {
   const s = useStore()
-  const { settings, accounts, transactions, transfers, loans, assets, bills, documents, notes, budgetItems, people, incomeSources, updateSettings } = s
+  const { settings, accounts, transactions, transfers, loans, assets, bills, documents, notes, budgetItems, budgets, people, incomeSources, updateSettings } = s
   const [span, setSpan] = useState<6 | 12>(6)
   const [view, setView] = useState<View>('card')
   const reporting = settings.baseCurrency
@@ -39,7 +39,9 @@ export default function Forecast() {
 
   const extra = settings.extra ?? {}
   const theme = { ...DEFAULT_THEME, ...(extra.theme ?? {}) }
-  const baseBudget = toReport(settings.monthlyBudget, settings.baseCurrency)
+  // The forecast's "Budget" is what you have actually planned in Budget
+  // Categories, added up — not the separate flat Total Budget target.
+  const baseBudget = budgets.reduce((n, b) => n + toReport(b.budget, b.currency ?? 'AED'), 0)
   const baseIncome = settings.monthlyIncomeTarget > 0 ? toReport(settings.monthlyIncomeTarget, settings.baseCurrency) : snap.monthlyIncome
 
   const forecast = useMemo(() => {
@@ -158,7 +160,7 @@ export default function Forecast() {
       {view === 'card' && (
         <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-3">
           {forecast.map((f) => (
-            <MonthCard key={f.month} f={f} show={show} extra={extra} baseBudget={settings.monthlyBudget} onEditBudget={(v) => setFutureBudget(f.month, v)} />
+            <MonthCard key={f.month} f={f} show={show} extra={extra} baseBudget={baseBudget} onEditBudget={(v) => setFutureBudget(f.month, v)} />
           ))}
         </div>
       )}

@@ -21,8 +21,15 @@ import type { Account, AccountType, Currency } from '@/types'
 const TYPE_LABEL: Record<AccountType, string> = {
   bank: 'Bank Account',
   cash: 'Cash Wallet',
+  savings: 'Savings Account',
+  investment: 'Investment Account',
   card: 'Credit Card',
   loan: 'Loan Account',
+}
+
+/** Short suffix used when a chosen bank style starts a new account's name, e.g. "FAB Savings". */
+const NAME_SUFFIX: Record<AccountType, string> = {
+  bank: 'Account', cash: 'Account', savings: 'Savings', investment: 'Investment', card: 'Credit Card', loan: 'Loan',
 }
 
 export default function Accounts() {
@@ -102,6 +109,8 @@ export default function Accounts() {
     { key: 'all', label: `All Accounts (${accounts.length})` },
     { key: 'bank', label: `Bank Accounts (${accounts.filter((a) => a.type === 'bank').length})` },
     { key: 'cash', label: `Cash Wallets (${accounts.filter((a) => a.type === 'cash').length})` },
+    { key: 'savings', label: `Savings (${accounts.filter((a) => a.type === 'savings').length})` },
+    { key: 'investment', label: `Investments (${accounts.filter((a) => a.type === 'investment').length})` },
     { key: 'card', label: `Credit Cards (${accounts.filter((a) => a.type === 'card').length})` },
     { key: 'loan', label: `Loans (${accounts.filter((a) => a.type === 'loan').length})` },
   ] as const
@@ -555,7 +564,7 @@ function AccountModal({
             onChange={(e) => {
               const b = BANKS.find((x) => x.key === e.target.value)
               // Choosing a bank styles the card and, if no name yet, starts one.
-              setForm({ ...form, bankStyle: e.target.value, name: form.name || (b && b.key !== 'generic' ? `${b.mark} ${form.type === 'card' ? 'Credit Card' : form.type === 'loan' ? 'Loan' : 'Account'}` : form.name) })
+              setForm({ ...form, bankStyle: e.target.value, name: form.name || (b && b.key !== 'generic' ? `${b.mark} ${NAME_SUFFIX[form.type]}` : form.name) })
             }}
           >
             <option value="">Automatic — match from the account name{detectBank(form.name) ? ` (${detectBank(form.name)!.mark})` : ''}</option>
@@ -569,6 +578,8 @@ function AccountModal({
           <select className="input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as AccountType })}>
             <option value="bank">Bank Account</option>
             <option value="cash">Cash Wallet</option>
+            <option value="savings">Savings Account</option>
+            <option value="investment">Investment Account</option>
             <option value="card">Credit Card</option>
             <option value="loan">Loan Account</option>
           </select>
@@ -624,7 +635,7 @@ function AccountModal({
         )}
 
         <Field label="Accent Colour" className="col-span-2">
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             {['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#ec4899', '#06b6d4'].map((c) => (
               <button
                 key={c}
@@ -633,7 +644,19 @@ function AccountModal({
                 style={{ background: c }}
               />
             ))}
+            <span className="w-px h-6 bg-[#e2e8f0] mx-1" />
+            <label className="relative h-8 w-8 rounded-lg cursor-pointer overflow-hidden shrink-0 ring-1 ring-inset ring-[#e2e8f0]" title="Pick a custom colour" style={{ background: form.color }}>
+              <input
+                type="color"
+                value={form.color}
+                onChange={(e) => setForm({ ...form, color: e.target.value })}
+                className="absolute inset-0 h-full w-full opacity-0 cursor-pointer"
+              />
+            </label>
           </div>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Used for this account's card when no bank style is chosen above — pick a preset or your own custom colour.
+          </p>
         </Field>
       </div>
     </Modal>

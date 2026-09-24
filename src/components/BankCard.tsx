@@ -4,7 +4,10 @@ import { maskNumber, styleFor } from '@/data/banks'
 import { cardFigures } from '@/lib/ledger'
 import { money } from '@/lib/format'
 
-const TYPE_LABEL = { bank: 'Bank Account', cash: 'Cash Wallet', card: 'Credit Card', loan: 'Loan Account' } as const
+const TYPE_LABEL = {
+  bank: 'Bank Account', cash: 'Cash Wallet', savings: 'Savings Account', investment: 'Investment Account',
+  card: 'Credit Card', loan: 'Loan Account',
+} as const
 
 function Chip() {
   return (
