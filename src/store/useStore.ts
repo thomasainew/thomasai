@@ -49,6 +49,7 @@ interface State {
   // ---- household / schema (set at sign-in, never persisted)
   schemaV2: boolean
   schemaV3: boolean
+  schemaV4: boolean
   ownerId: string | null
   membership: HouseholdMember | null
   setContext: (c: SessionContext) => void
@@ -343,9 +344,10 @@ export const useStore = create<State>()(
 
       schemaV2: false,
       schemaV3: false,
+      schemaV4: false,
       ownerId: null,
       membership: null,
-      setContext: (c) => set({ schemaV2: c.schemaV2, schemaV3: c.schemaV3, ownerId: c.ownerId, membership: c.membership }),
+      setContext: (c) => set({ schemaV2: c.schemaV2, schemaV3: c.schemaV3, schemaV4: c.schemaV4, ownerId: c.ownerId, membership: c.membership }),
 
       setSession: (userId, userEmail) => set({ userId, userEmail }),
       hydrate: (data) => {
@@ -893,10 +895,10 @@ export const useStore = create<State>()(
       partialize: (s) => {
         const {
           userId, userEmail, syncing, syncError, lastSynced, analysing, analysisError,
-          schemaV2, schemaV3, ownerId, membership, ...data
+          schemaV2, schemaV3, schemaV4, ownerId, membership, ...data
         } = s
         void userId; void userEmail; void syncing; void syncError; void lastSynced
-        void analysing; void analysisError; void schemaV2; void schemaV3; void ownerId; void membership
+        void analysing; void analysisError; void schemaV2; void schemaV3; void schemaV4; void ownerId; void membership
         return data
       },
     },

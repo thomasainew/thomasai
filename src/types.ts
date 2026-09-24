@@ -216,6 +216,8 @@ export interface Goal {
   name: string
   target: number
   saved: number
+  /** Currency `target` and `saved` are denominated in. Defaults to AED for goals created before this existed. */
+  currency?: Currency
   deadline: string
   icon: string
   color: string

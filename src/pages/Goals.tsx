@@ -3,27 +3,29 @@ import { Flag, PiggyBank, Plus, Target, Trash2, TrendingUp } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Card, CardHead, Empty, PageHeader, Progress, StatCard } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
-import { daysLeft, fmtDate, money, pct } from '@/lib/format'
-import type { Goal } from '@/types'
+import { daysLeft, fmtDate, money, pct, toBase } from '@/lib/format'
+import type { Currency, Goal } from '@/types'
 
 export default function Goals() {
   const { goals, addGoal, removeGoal, contributeGoal } = useStore()
   const [modal, setModal] = useState(false)
   const [contrib, setContrib] = useState<Goal | null>(null)
   const [amount, setAmount] = useState('')
-  const [form, setForm] = useState({ name: '', target: '', saved: '', deadline: '2027-12-31', icon: '🎯', color: '#3b82f6' })
+  const [form, setForm] = useState({ name: '', target: '', saved: '', currency: 'AED' as Currency, deadline: '2027-12-31', icon: '🎯', color: '#3b82f6' })
 
-  const totalTarget = goals.reduce((a, g) => a + g.target, 0)
-  const totalSaved = goals.reduce((a, g) => a + g.saved, 0)
+  // Goals can be in different currencies, so totals are added up in AED (the
+  // app's internal base) then shown in whatever currency Settings displays.
+  const totalTarget = goals.reduce((a, g) => a + toBase(g.target, g.currency ?? 'AED'), 0)
+  const totalSaved = goals.reduce((a, g) => a + toBase(g.saved, g.currency ?? 'AED'), 0)
   const completed = goals.filter((g) => g.saved >= g.target).length
 
   const save = () => {
     if (!form.name.trim() || !Number(form.target)) return
     addGoal({
-      name: form.name.trim(), target: Number(form.target), saved: Number(form.saved) || 0,
+      name: form.name.trim(), target: Number(form.target), saved: Number(form.saved) || 0, currency: form.currency,
       deadline: form.deadline, icon: form.icon || '🎯', color: form.color,
     })
-    setForm({ name: '', target: '', saved: '', deadline: '2027-12-31', icon: '🎯', color: '#3b82f6' })
+    setForm({ name: '', target: '', saved: '', currency: 'AED', deadline: '2027-12-31', icon: '🎯', color: '#3b82f6' })
     setModal(false)
   }
 
@@ -66,8 +68,8 @@ export default function Goals() {
 
               <div className="mt-4 flex items-end justify-between mb-2">
                 <div>
-                  <p className="text-[20px] font-extrabold text-slate-900 leading-none">{money(g.saved)}</p>
-                  <p className="text-[11.5px] text-slate-400 mt-1">of {money(g.target)}</p>
+                  <p className="text-[20px] font-extrabold text-slate-900 leading-none">{money(g.saved, g.currency ?? 'AED')}</p>
+                  <p className="text-[11.5px] text-slate-400 mt-1">of {money(g.target, g.currency ?? 'AED')}</p>
                 </div>
                 <span className="text-[17px] font-extrabold" style={{ color: g.color }}>{p}%</span>
               </div>
@@ -76,11 +78,11 @@ export default function Goals() {
               <div className="mt-4 grid grid-cols-2 gap-2 text-center">
                 <div className="rounded-xl bg-slate-50 py-2">
                   <p className="text-[10.5px] text-slate-400">Remaining</p>
-                  <p className="text-[13px] font-bold text-slate-700">{money(Math.max(0, g.target - g.saved))}</p>
+                  <p className="text-[13px] font-bold text-slate-700">{money(Math.max(0, g.target - g.saved), g.currency ?? 'AED')}</p>
                 </div>
                 <div className="rounded-xl bg-slate-50 py-2">
                   <p className="text-[10.5px] text-slate-400">Save / month</p>
-                  <p className="text-[13px] font-bold text-slate-700">{money(perMonth)}</p>
+                  <p className="text-[13px] font-bold text-slate-700">{money(perMonth, g.currency ?? 'AED')}</p>
                 </div>
               </div>
 
@@ -116,9 +118,9 @@ export default function Goals() {
               {goals.map((g) => (
                 <tr key={g.id} className="row-hover">
                   <td className="td font-semibold text-slate-800"><span className="mr-2">{g.icon}</span>{g.name}</td>
-                  <td className="td text-right tabular-nums text-slate-500">{money(g.target)}</td>
-                  <td className="td text-right tabular-nums font-bold">{money(g.saved)}</td>
-                  <td className="td text-right tabular-nums text-slate-500">{money(Math.max(0, g.target - g.saved))}</td>
+                  <td className="td text-right tabular-nums text-slate-500">{money(g.target, g.currency ?? 'AED')}</td>
+                  <td className="td text-right tabular-nums font-bold">{money(g.saved, g.currency ?? 'AED')}</td>
+                  <td className="td text-right tabular-nums text-slate-500">{money(Math.max(0, g.target - g.saved), g.currency ?? 'AED')}</td>
                   <td className="td">
                     <div className="flex items-center gap-2">
                       <Progress value={g.saved} max={g.target} color={g.color} height={7} />
@@ -148,8 +150,15 @@ export default function Goals() {
           <Field label="Goal Name" className="col-span-2">
             <input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Emergency Fund" autoFocus />
           </Field>
-          <Field label="Target Amount"><input className="input" type="number" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} /></Field>
-          <Field label="Already Saved"><input className="input" type="number" value={form.saved} onChange={(e) => setForm({ ...form, saved: e.target.value })} /></Field>
+          <Field label="Target Amount">
+            <div className="flex gap-2">
+              <input className="input flex-1" type="number" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
+              <select className="input w-20" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as Currency })}>
+                <option>AED</option><option>INR</option><option>USD</option>
+              </select>
+            </div>
+          </Field>
+          <Field label={`Already Saved (${form.currency})`}><input className="input" type="number" value={form.saved} onChange={(e) => setForm({ ...form, saved: e.target.value })} /></Field>
           <Field label="Target Date"><input className="input" type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} /></Field>
           <Field label="Icon"><input className="input" value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} maxLength={2} /></Field>
           <Field label="Colour" className="col-span-2">
@@ -167,7 +176,7 @@ export default function Goals() {
         open={contrib !== null}
         onClose={() => setContrib(null)}
         title={`Add to ${contrib?.name ?? ''}`}
-        subtitle={contrib ? `${money(contrib.saved)} saved of ${money(contrib.target)}` : ''}
+        subtitle={contrib ? `${money(contrib.saved, contrib.currency ?? 'AED')} saved of ${money(contrib.target, contrib.currency ?? 'AED')}` : ''}
         footer={
           <>
             <button className="btn-ghost" onClick={() => setContrib(null)}>Cancel</button>
@@ -183,7 +192,7 @@ export default function Goals() {
           </>
         }
       >
-        <Field label="Amount (AED)">
+        <Field label={`Amount (${contrib?.currency ?? 'AED'})`}>
           <input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
         </Field>
       </Modal>

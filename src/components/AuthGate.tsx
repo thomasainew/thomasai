@@ -20,6 +20,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const setContext = useStore((s) => s.setContext)
   const schemaV2 = useStore((s) => s.schemaV2)
   const schemaV3 = useStore((s) => s.schemaV3)
+  const schemaV4 = useStore((s) => s.schemaV4)
   const [notice, setNotice] = useState<string | null>(null)
   const clearLocalData = useStore((s) => s.clearLocalData)
   const [phase, setPhase] = useState<Phase>(hasSupabase ? 'checking' : 'ready')
@@ -196,6 +197,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
               Run <b>supabase/migrations/0016_security_verification.sql</b> and deploy{' '}
               <b>supabase functions deploy security-verify</b> to turn on the step-2 login question. Everything else
               keeps working as before.
+            </p>
+          </div>
+        </div>
+      )}
+      {hasSupabase && schemaV3 && !schemaV4 && (
+        <div className="fixed bottom-4 left-4 z-50 card px-4 py-3 max-w-sm bg-brand-50 border-brand-200 flex items-start gap-2.5">
+          <AlertCircle size={16} className="text-brand-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-[12.5px] font-bold text-brand-900">Database update needed</p>
+            <p className="text-[11.5px] text-brand-800 mt-0.5">
+              Run <b>supabase/migrations/0018_goal_currency.sql</b> to save a savings goal's own currency. Until then
+              goals keep syncing in AED as before.
             </p>
           </div>
         </div>

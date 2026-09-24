@@ -37,6 +37,11 @@ export const V2_TABLES: Collection[] = ['receipts', 'itemAliases', 'assets', 'as
 /** Tables that only exist once migration 0016 has been run. */
 export const V3_TABLES: Collection[] = ['verificationQuestions', 'incomeSources']
 
+/** Columns added to older tables by 0018 — stripped from writes until it has run. */
+export const V4_COLUMNS: Partial<Record<Collection, string[]>> = {
+  goals: ['currency'],
+}
+
 /** Columns added to older tables by 0015 — stripped from writes until it has run. */
 export const V2_COLUMNS: Partial<Record<Collection, string[]>> = {
   accounts: ['opening_balance', 'opening_confirmed', 'credit_limit', 'bank_style'],
@@ -230,11 +235,11 @@ export const MAPPERS: {
 
   goals: {
     to: (g: Goal) => ({
-      id: g.id, name: g.name, target: g.target, saved: g.saved, deadline: g.deadline,
+      id: g.id, name: g.name, target: g.target, saved: g.saved, currency: g.currency ?? 'AED', deadline: g.deadline,
       icon: g.icon, color: g.color,
     }),
     from: (r): Goal => ({
-      id: r.id, name: r.name, target: num(r.target), saved: num(r.saved), deadline: r.deadline,
+      id: r.id, name: r.name, target: num(r.target), saved: num(r.saved), currency: r.currency ?? 'AED', deadline: r.deadline,
       icon: r.icon, color: r.color,
     }),
   },
