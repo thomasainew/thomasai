@@ -150,7 +150,6 @@ export const PURCHASE_CATEGORIES = [
   'Automotive', 'Business', 'Clothing', 'Health', 'Other',
 ] as const
 
-const WEIGHT_UNIT_ENUM = ['kg', 'g', 'lb', 'oz', 'L', 'ml']
 const CURRENCY_ENUM = ['AED', 'INR', 'USD']
 const METHOD_ENUM = ['Bank Transfer', 'Cash', 'Card', 'Credit Card', 'Cheque', 'Auto Debit', 'Online']
 
@@ -159,22 +158,36 @@ const METHOD_ENUM = ['Bank Transfer', 'Cash', 'Card', 'Credit Card', 'Cheque', '
 // ---------------------------------------------------------------------------
 
 export interface ScannedItem {
+  /** Item / product code printed on the line, e.g. "002064". */
+  itemCode?: string
   item: string
   /** Manufacturer or brand printed on the line, e.g. "Al Ain", "Nestle". */
   brand?: string
   category: string
+  /** Finer item group, e.g. "Frozen Chicken", "Dairy". */
+  itemGroup?: string
+  /** Unit of measure the line is sold in: CTN, PCS, KG… */
+  uom?: string
   qty: number
-  /** Unit price, in the receipt's own currency. */
+  /** Unit price (per UOM) BEFORE VAT, in the receipt's own currency. */
   price: number
-  /** Pack size read off the line, e.g. 10 for "Basmati Rice 10kg". */
-  weight?: number
-  weightUnit?: string
+  /** Inner packs per UOM: the 20 in "20 × 450 g". */
+  packCount?: number
+  /** Size of one inner pack: the 450 in "20 × 450 g". */
+  packSize?: number
+  packUnit?: string
+  /** VAT rate for this line, in percent. */
+  vatRate?: number
+  /** True when part of the line was unreadable or ambiguous. */
+  uncertain?: boolean
 }
 
 export interface ScannedBill {
   store: string
   /** Receipt or invoice number, if the receipt shows one. */
   invoiceNumber?: string
+  branch?: string
+  salesperson?: string
   date: string
   currency: Purchase extends { currency: infer C } ? C : string
   /** VAT/tax amount printed as its own line, if any. */
@@ -186,24 +199,32 @@ export interface ScannedBill {
 const BILL_SCHEMA = {
   type: 'OBJECT',
   properties: {
-    store: { type: 'STRING', description: 'Shop or merchant name' },
+    store: { type: 'STRING', description: 'Supplier, shop or merchant name' },
     invoiceNumber: { type: 'STRING', description: 'Receipt or invoice number printed on the bill, if any. Omit if absent.' },
+    branch: { type: 'STRING', description: 'Customer branch / delivery location printed on the invoice, if any. Omit if absent.' },
+    salesperson: { type: 'STRING', description: 'Supplier salesperson name printed on the invoice, if any. Omit if absent.' },
     date: { type: 'STRING', description: 'Purchase date as yyyy-MM-dd' },
     currency: { type: 'STRING', enum: CURRENCY_ENUM },
-    vat: { type: 'NUMBER', description: 'VAT/tax amount shown as its own line, if the receipt itemises one. Omit if not shown separately.' },
+    vat: { type: 'NUMBER', description: 'Total VAT/tax amount on the bill, if shown. Omit if not shown.' },
     total: { type: 'NUMBER', description: 'Grand total paid, including tax' },
     items: {
       type: 'ARRAY',
       items: {
         type: 'OBJECT',
         properties: {
+          itemCode: { type: 'STRING', description: 'Item/product code printed on the line. Omit if absent.' },
           item: { type: 'STRING' },
           brand: { type: 'STRING', description: 'Manufacturer or brand name printed on the line, e.g. "Al Ain", "Nestle". Omit if not visible.' },
           category: { type: 'STRING', enum: PURCHASE_CATEGORIES as unknown as string[] },
+          itemGroup: { type: 'STRING', description: 'Short item group, e.g. "Frozen Chicken", "Dairy", "Sauces & Condiments".' },
+          uom: { type: 'STRING', description: 'Unit of measure the qty is counted in, e.g. CTN, BOX, PKT, PCS, KG, BTL.' },
           qty: { type: 'NUMBER' },
-          price: { type: 'NUMBER', description: 'Unit price: line total divided by qty' },
-          weight: { type: 'NUMBER', description: 'Pack size if the line states one, e.g. 10 for "Rice 10kg". Omit if absent.' },
-          weightUnit: { type: 'STRING', enum: WEIGHT_UNIT_ENUM },
+          price: { type: 'NUMBER', description: 'Unit price per UOM BEFORE VAT: pre-VAT line amount divided by qty' },
+          packCount: { type: 'NUMBER', description: 'Inner packs per UOM, e.g. 20 for "20 x 450g". Omit if absent.' },
+          packSize: { type: 'NUMBER', description: 'Size of one inner pack, e.g. 450 for "20 x 450g", 10 for "Rice 10kg". Omit if absent.' },
+          packUnit: { type: 'STRING', enum: ['g', 'kg', 'ml', 'L', 'pcs'] },
+          vatRate: { type: 'NUMBER', description: 'VAT percent applied to this line, e.g. 5. 0 if exempt.' },
+          uncertain: { type: 'BOOLEAN', description: 'true if any value on this line was hard to read or guessed' },
         },
         required: ['item', 'category', 'qty', 'price'],
       },
@@ -212,21 +233,29 @@ const BILL_SCHEMA = {
   required: ['store', 'date', 'currency', 'total', 'items'],
 }
 
-const BILL_PROMPT = `You are reading a shopping receipt, invoice or bill.
+const BILL_PROMPT = `You are reading a shopping receipt, supplier invoice or delivery note.
 
 Extract every purchased line item. Rules:
-- price is the UNIT price: if a line shows a total for several units, divide by qty.
+- price is the UNIT price per UOM BEFORE VAT: if a line shows a total for
+  several units, divide by qty. If only VAT-inclusive prices are printed,
+  remove the VAT using the line's VAT rate.
+- itemCode is the product/item code printed on the line, exactly as printed
+  (keep leading zeros). Omit when the line has none.
+- uom is the unit the qty counts: CTN for cartons, PCS, KG, BOX, PKT, BTL…
+- Pack details are part of the item's identity. "20 x 450g" is packCount 20,
+  packSize 450, packUnit g. "Basmati Rice 10kg" is packSize 10, packUnit kg
+  with no packCount. Never convert, round or estimate a size not written down.
+- vatRate is the VAT percent for the line (UAE standard is 5). Use 0 for a
+  zero-rated or exempt line.
 - brand is the manufacturer or brand name printed on the line (e.g. "Al Ain",
-  "Nestle", "Lulu"), separate from the generic item description. Only report
-  one if it is actually printed — never guess a brand from the product type.
-- Skip subtotal, discount and rounding lines — items only. If VAT/tax is shown
-  as its own line, report its amount in vat rather than folding it into an item.
+  "Nestle"). Only report one if it is actually printed.
+- itemGroup is a short, human item group such as "Frozen Chicken",
+  "Frozen Foods", "Dairy", "Oils & Vinegar".
+- Set uncertain true on any line where a value was unreadable or ambiguous.
+- Skip subtotal, discount and rounding lines — items only.
 - date must be yyyy-MM-dd. Receipts are usually DD/MM/YYYY; read the day first
   unless that gives an impossible month.
 - If the currency is unclear, infer it from the merchant's country; default AED.
-- weight is the pack size printed on the line, per unit: "Basmati Rice 10kg"
-  is weight 10, weightUnit kg. Leave both out when the line states no size.
-  Never convert or estimate a size that is not written down.
 - If a field is genuinely unreadable, use an empty string for text and 0 for
   numbers. Never invent a value.`
 
