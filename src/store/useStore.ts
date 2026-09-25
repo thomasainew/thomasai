@@ -17,6 +17,9 @@ import { hasSupabase } from '@/lib/supabase'
 import { deleteRow, upsertRow, upsertSettings, type RemoteData, type SessionContext } from '@/lib/sync'
 import type { Collection } from '@/lib/mappers'
 
+/** A recorded payment. With `loanId`, it is a repayment towards that loan rather than an expense. */
+export interface PaymentInput { accountId: string; date: string; amount: number; loanId?: string; interest?: number }
+
 interface State {
   // ---- data
   settings: Settings
@@ -107,7 +110,7 @@ interface State {
    */
   saveBudgetItem: (month: string, sourceKey: string, patch: Partial<BudgetItem>, base?: Partial<BudgetItem>) => void
   /** Pay one instalment of a note's schedule: records the expense and marks both records. */
-  payInstallment: (noteId: string, installmentId: string, p: { accountId: string; date: string; amount: number }) => string | null
+  payInstallment: (noteId: string, installmentId: string, p: PaymentInput) => string | null
   /** Record a payment for a smart-budget item that has no schedule (EMI, bill, renewal, manual). */
   payBudgetItem: (item: { month: string; sourceKey: string; name: string; category: string; currency: Transaction['currency']; person?: string; sourceKind: BudgetItem['sourceKind']; sourceId?: string }, p: { accountId: string; date: string; amount: number }) => string | null
   addBudgetItem: (b: Omit<BudgetItem, 'id'>) => void
@@ -509,6 +512,15 @@ export const useStore = create<State>()(
         set({ transfers: get().transfers.filter((t) => t.id !== id) })
         drop('transfers', id)
         if (item?.toKind === 'loan') nudgeLegacyLoan(item.toId, transferPrincipal(item))
+        // An instalment settled by this repayment is unpaid again.
+        for (const n of get().notes) {
+          if (!n.schedule?.some((i) => i.paidTransferId === id)) continue
+          get().updateNote(n.id, {
+            schedule: n.schedule.map((i) =>
+              i.paidTransferId === id ? { ...i, paidTransferId: undefined, paidLoanId: undefined, paidAmount: undefined, paidDate: undefined } : i,
+            ),
+          })
+        }
         recompute()
       },
 
@@ -588,6 +600,23 @@ export const useStore = create<State>()(
         const inst = note?.schedule?.find((i) => i.id === installmentId)
         const account = get().accounts.find((a) => a.id === p.accountId)
         if (!note || !inst || !account) return null
+        if (p.loanId) {
+          // Paid towards a loan: a repayment transfer from the paying account
+          // into the loan, which lowers what is owed. Only interest is an expense.
+          const transferId = get().addTransfer({
+            date: p.date, fromAccountId: p.accountId, toKind: 'loan', toId: p.loanId, amount: p.amount,
+            currency: inst.currency, purpose: 'Loan payment', kind: 'repayment',
+            interest: p.interest && p.interest > 0 ? Math.min(p.interest, p.amount) : undefined,
+            notes: `${note.title} — ${inst.label}`,
+          })
+          const schedule = (note.schedule ?? []).map((i) =>
+            i.id === installmentId
+              ? { ...i, paidTxnId: undefined, paidTransferId: transferId, paidLoanId: p.loanId, paidAmount: p.amount, paidDate: p.date }
+              : i,
+          )
+          get().updateNote(noteId, { schedule })
+          return transferId
+        }
         const txnId = get().addTransaction({
           type: 'expense', date: p.date, description: `${note.title} — ${inst.label}`,
           category: note.feeCategory ?? 'Education', accountId: p.accountId, amount: p.amount, currency: inst.currency,

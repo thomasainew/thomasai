@@ -204,6 +204,8 @@ export default function Installments() {
         amount={payFor?.inst.amount}
         currency={payFor?.inst.currency ?? 'AED'}
         onConfirm={(p) => payFor && payInstallment(payFor.note.id, payFor.inst.id, p)}
+        allowLoan
+        suggestLoanFor={payFor?.note.title}
       />
     </div>
   )

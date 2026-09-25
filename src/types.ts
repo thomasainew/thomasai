@@ -186,6 +186,9 @@ export interface Installment {
   remindDays?: number
   /** Set once a payment is matched or recorded; the instalment is then Paid. */
   paidTxnId?: string
+  /** Set instead of paidTxnId when the payment was a repayment towards a loan (a transfer, not an expense). */
+  paidTransferId?: string
+  paidLoanId?: string
   paidAmount?: number
   paidDate?: string
 }

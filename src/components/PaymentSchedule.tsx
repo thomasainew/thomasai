@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Plus, Trash2, Wallet } from 'lucide-react'
 import { Modal, Field } from '@/components/ui/Modal'
 import { Badge } from '@/components/ui/Primitives'
-import { useStore } from '@/store/useStore'
+import { useStore, type PaymentInput } from '@/store/useStore'
 import { accountLabel, paymentAccounts } from '@/lib/accounting'
 import { fmtDate, money, TODAY, uid } from '@/lib/format'
 import { installmentStatus, scheduleSummary } from '@/lib/schedules'
@@ -57,7 +57,7 @@ export function ScheduleEditor({
         // Hand-marked (no linked transaction) can be toggled here; one settled by a
         // real expense can only be undone by deleting that transaction elsewhere.
         const handPaid = paid && !i.paidTxnId
-        const canToggle = !i.paidTxnId
+        const canToggle = !i.paidTxnId && !i.paidTransferId
         return (
           <div key={i.id} className="rounded-xl border border-[#eef2f8] p-2 space-y-2">
             <div className="grid grid-cols-12 gap-2 items-center">
@@ -130,6 +130,7 @@ export function ScheduleEditor({
 /** Read view of a note's schedule with totals and a Record payment action per instalment. */
 export function ScheduleView({ note, onPay }: { note: Note; onPay: (i: Installment) => void }) {
   const transactions = useStore((s) => s.transactions)
+  const loans = useStore((s) => s.loans)
   const exists = useMemo(() => new Set(transactions.map((t) => t.id)), [transactions])
   const sum = scheduleSummary(note, TODAY, (id) => exists.has(id))
   if (!sum.list.length) return null
@@ -155,7 +156,10 @@ export function ScheduleView({ note, onPay }: { note: Note; onPay: (i: Installme
                 <td className="py-1.5 font-medium text-slate-700">{i.label}</td>
                 <td className="py-1.5 text-slate-500">{fmtDate(i.dueDate)}</td>
                 <td className="py-1.5 text-right font-semibold tabular-nums">{money(i.amount, i.currency)}</td>
-                <td className="py-1.5"><Badge tone={tone[st]}>{st}</Badge>{st === 'Paid' && i.paidDate && <span className="text-[10.5px] text-slate-400 ml-1.5">{fmtDate(i.paidDate)}</span>}</td>
+                <td className="py-1.5"><Badge tone={tone[st]}>{st}</Badge>{st === 'Paid' && i.paidDate && <span className="text-[10.5px] text-slate-400 ml-1.5">{fmtDate(i.paidDate)}</span>}
+                  {st === 'Paid' && i.paidLoanId && (
+                    <span className="text-[10.5px] text-slate-400 ml-1.5">→ {loans.find((l) => l.id === i.paidLoanId)?.name ?? 'loan'}</span>
+                  )}</td>
                 <td className="py-1.5 text-right">
                   {st !== 'Paid' && (
                     <button onClick={() => onPay(i)} className="h-7 px-2.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 cursor-pointer inline-flex items-center gap-1">
@@ -177,29 +181,51 @@ export function ScheduleView({ note, onPay }: { note: Note; onPay: (i: Installme
  * to the item — it never moves money from a bank; it only records what you paid.
  */
 export function PayModal({
-  open, onClose, title, amount, currency, onConfirm,
+  open, onClose, title, amount, currency, onConfirm, allowLoan = false, suggestLoanFor,
 }: {
   open: boolean
   onClose: () => void
   title: string
   amount?: number
   currency: Currency
-  onConfirm: (p: { accountId: string; date: string; amount: number }) => void
+  onConfirm: (p: PaymentInput) => void
+  /** Offer paying this towards a loan (a repayment that reduces it) instead of recording an expense. */
+  allowLoan?: boolean
+  /** Text to pre-select a loan whose name it mentions, e.g. the instalment plan's title. */
+  suggestLoanFor?: string
 }) {
   const accounts = useStore((s) => s.accounts)
-  const eligible = useMemo(() => paymentAccounts(accounts), [accounts])
+  const allLoans = useStore((s) => s.loans)
+  const loans = useMemo(() => (allowLoan ? allLoans.filter((l) => l.status !== 'Closed') : []), [allowLoan, allLoans])
+  const [loanId, setLoanId] = useState('')
+  const loan = loans.find((l) => l.id === loanId)
+  // The loan being repaid can't also be the account paying it.
+  const eligible = useMemo(
+    () => paymentAccounts(accounts).filter((a) => !loan?.accountId || a.id !== loan.accountId),
+    [accounts, loan],
+  )
   const [accountId, setAccountId] = useState('')
   const [date, setDate] = useState(TODAY)
   const [amt, setAmt] = useState('')
+  const [interest, setInterest] = useState('')
 
   useEffect(() => {
     if (!open) return
-    setAccountId(eligible[0]?.id ?? '')
+    const hint = (suggestLoanFor ?? '').trim().toLowerCase()
+    const guess = hint ? loans.find((l) => hint.includes(l.name.trim().toLowerCase()) || l.name.trim().toLowerCase().includes(hint)) : undefined
+    setLoanId(guess?.id ?? '')
     setDate(TODAY)
     setAmt(amount !== undefined ? String(amount) : '')
-  }, [open, amount, eligible])
+    setInterest('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, amount])
 
-  const ok = Boolean(accountId) && Number(amt) > 0
+  useEffect(() => {
+    if (!open) return
+    if (!eligible.some((a) => a.id === accountId)) setAccountId(eligible[0]?.id ?? '')
+  }, [open, eligible, accountId])
+
+  const ok = Boolean(accountId) && Number(amt) > 0 && !(Number(interest) > Number(amt))
   return (
     <Modal
       open={open}
@@ -209,13 +235,28 @@ export function PayModal({
       footer={
         <>
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn-green disabled:opacity-50" disabled={!ok} onClick={() => { onConfirm({ accountId, date, amount: Number(amt) }); onClose() }}>
+          <button className="btn-green disabled:opacity-50" disabled={!ok} onClick={() => {
+            onConfirm({ accountId, date, amount: Number(amt), loanId: loan?.id, interest: loan && Number(interest) > 0 ? Number(interest) : undefined })
+            onClose()
+          }}>
             <CheckCircle2 size={15} /> Record payment
           </button>
         </>
       }
     >
       <div className="grid grid-cols-2 gap-4">
+        {loans.length > 0 && (
+          <Field label="Loan to reduce" className="col-span-2">
+            <select className="input" value={loanId} onChange={(e) => setLoanId(e.target.value)}>
+              <option value="">None — record as an expense</option>
+              {loans.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.name}{l.lender ? ` · ${l.lender}` : ''} — {money(l.outstanding, l.currency)} outstanding
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
         <Field label="Paid from" className="col-span-2">
           <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             {eligible.map((a) => <option key={a.id} value={a.id}>{accountLabel(a)}</option>)}
@@ -223,10 +264,23 @@ export function PayModal({
         </Field>
         <Field label={`Amount paid (${currency})`}><input className="input" type="number" min="0" step="0.01" value={amt} onChange={(e) => setAmt(e.target.value)} /></Field>
         <Field label="Date paid"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        {loan && (
+          <Field label={`Of which interest (${currency}, optional)`} className="col-span-2">
+            <input className="input" type="number" min="0" step="0.01" value={interest} onChange={(e) => setInterest(e.target.value)} placeholder="0" />
+          </Field>
+        )}
+        {loan ? (
+          <p className="col-span-2 text-[11.5px] text-slate-500">
+            Records a repayment from the paying account into <b>{loan.name}</b>, so its outstanding balance drops by the
+            amount paid{Number(interest) > 0 ? ' less the interest' : ''}. Interest is counted as an expense; the rest is
+            not, since it only pays down what you owe.
+          </p>
+        ) : (
         <p className="col-span-2 text-[11.5px] text-slate-500">
           This records the expense in your accounts and marks the payment as paid everywhere it appears — once. It does
           not send money from any bank.
         </p>
+        )}
       </div>
     </Modal>
   )

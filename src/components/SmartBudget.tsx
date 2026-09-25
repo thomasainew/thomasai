@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Check, CalendarClock, Plus, RotateCcw, Sparkles, Trash2, Wallet, X } from 'lucide-react'
-import { useStore } from '@/store/useStore'
+import { useStore, type PaymentInput } from '@/store/useStore'
 import { Badge, Card, CardHead, Empty, StatCard } from '@/components/ui/Primitives'
 import { Modal, Field } from '@/components/ui/Modal'
 import { PayModal } from '@/components/PaymentSchedule'
@@ -65,7 +65,7 @@ export function SmartBudget() {
     decide(i, { status: 'Planned', amount: a })
   }
 
-  const doPay = (i: MonthItem, p: { accountId: string; date: string; amount: number }) => {
+  const doPay = (i: MonthItem, p: PaymentInput) => {
     if (i.sourceKind === 'schedule' && i.sourceId) {
       const instId = i.sourceKey.split(':')[2]
       payInstallment(i.sourceId, instId, p)
@@ -241,6 +241,8 @@ export function SmartBudget() {
         amount={pay?.amount}
         currency={pay?.currency ?? 'AED'}
         onConfirm={(p) => pay && doPay(pay, p)}
+        allowLoan={pay?.sourceKind === 'schedule'}
+        suggestLoanFor={pay?.name}
       />
     </div>
   )
