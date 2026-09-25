@@ -74,3 +74,22 @@ test('reporting in INR converts consistently', () => {
 })
 
 console.log(`\n${n} passed${process.exitCode ? ', some FAILED' : ''}`)
+
+// ---- tags report
+{
+  const { byTag } = await import('../src/lib/selectors.ts')
+  const e = (id, date, description, amount, extra = {}) => ({ id, type: 'expense', date, description, category: 'Groceries', accountId: 'a', amount, currency: 'AED', ...extra })
+  const r = byTag([
+    e('1', '2026-09-01', 'Milk', 10),
+    e('2', '2026-09-05', 'milk ', 12),
+    e('3', '2026-09-06', 'Petrol', 100),
+    e('4', '2026-09-07', 'Random', 5),
+    e('5', '2026-08-01', 'Milk', 99),
+    { ...e('6', '2026-09-08', 'Milk', 2), type: 'income', kind: 'refund' },
+  ], ['Milk', 'Petrol', 'Bread'], '2026-09-01', '2026-09-30')
+  const assert = (await import('node:assert/strict')).default
+  assert.deepEqual(r.tags.map((x) => [x.tag, x.total, x.count]), [['Petrol', 100, 1], ['Milk', 20, 3], ['Bread', 0, 0]])
+  assert.equal(r.untagged.total, 5)
+  assert.equal(r.tags[1].lastDate, '2026-09-08')
+  console.log('  ok   tags report groups by tag, in range, refunds reduce')
+}

@@ -423,3 +423,35 @@ export function statementFor(date: string, statementDay: number, dueDay: number)
 
   return { start, end, due }
 }
+
+export interface TagRow {
+  tag: string
+  total: number
+  count: number
+  lastDate?: string
+}
+
+/**
+ * Spending per Add Expense tag in [from, to] (yyyy-MM-dd, inclusive; either
+ * may be omitted). Picking a tag sets the expense's description to it, so an
+ * expense belongs to a tag when its description matches (case-insensitive).
+ * Everything else lands in `untagged`. Base currency; refunds reduce the total.
+ */
+export function byTag(txns: Transaction[], tags: string[], from?: string, to?: string) {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ')
+  const rows = new Map<string, TagRow>()
+  for (const tag of tags) if (tag.trim() && !rows.has(norm(tag))) rows.set(norm(tag), { tag: tag.trim(), total: 0, count: 0 })
+  const untagged: TagRow = { tag: 'Untagged', total: 0, count: 0 }
+  for (const t of txns) {
+    if (!isSpend(t) || (from && t.date < from) || (to && t.date > to)) continue
+    const row = rows.get(norm(t.description)) ?? untagged
+    row.total += spendValue(t)
+    row.count += 1
+    if (!row.lastDate || t.date > row.lastDate) row.lastDate = t.date
+  }
+  const round = (r: TagRow) => ({ ...r, total: Math.round(r.total * 100) / 100 })
+  return {
+    tags: [...rows.values()].map(round).sort((a, b) => b.total - a.total || a.tag.localeCompare(b.tag)),
+    untagged: round(untagged),
+  }
+}

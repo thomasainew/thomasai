@@ -1,16 +1,17 @@
 import { useMemo, useState } from 'react'
-import { BarChart3, Download, FileText, Landmark, PieChart as PieIcon, StickyNote } from 'lucide-react'
+import { BarChart3, Download, FileText, Landmark, PieChart as PieIcon, StickyNote, Tag } from 'lucide-react'
 import { useStore } from '@/store/useStore'
 import { Badge, Card, CardHead, PageHeader, Progress, StatCard, statusTone } from '@/components/ui/Primitives'
 import { Donut, DonutLegend, PALETTE, TrendLine } from '@/components/charts/Charts'
-import { daysLeft, fmtDate, money, monthLabel, pct, toBase } from '@/lib/format'
-import { CURRENT_MONTH, byCategory, byPerson, docStatus, loanSummary, monthPlan, monthlySeries, seriesRange, totals } from '@/lib/selectors'
+import { TODAY, addMonths, daysLeft, fmtDate, money, monthLabel, pct, toBase } from '@/lib/format'
+import { CURRENT_MONTH, byCategory, byTag, byPerson, docStatus, loanSummary, monthPlan, monthlySeries, seriesRange, totals } from '@/lib/selectors'
 
-type Tab = 'summary' | 'category' | 'loans' | 'documents' | 'notes'
+type Tab = 'summary' | 'category' | 'tags' | 'loans' | 'documents' | 'notes'
 
 const TABS: { key: Tab; label: string; icon: any }[] = [
   { key: 'summary', label: 'Monthly Summary', icon: BarChart3 },
   { key: 'category', label: 'Category Report', icon: PieIcon },
+  { key: 'tags', label: 'Tags Report', icon: Tag },
   { key: 'loans', label: 'Loan Report', icon: Landmark },
   { key: 'documents', label: 'Document Expiry', icon: FileText },
   { key: 'notes', label: 'Notes & Follow-up', icon: StickyNote },
@@ -213,6 +214,8 @@ export default function Reports() {
         </div>
       )}
 
+      {tab === 'tags' && <TagsReport />}
+
       {tab === 'loans' && (
         <>
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
@@ -358,5 +361,153 @@ export default function Reports() {
         </div>
       )}
     </div>
+  )
+}
+
+
+type TagPeriod = 'month' | 'last' | '3m' | 'year' | 'all'
+const TAG_PERIODS: { key: TagPeriod; label: string }[] = [
+  { key: 'month', label: 'This month' },
+  { key: 'last', label: 'Last month' },
+  { key: '3m', label: 'Last 3 months' },
+  { key: 'year', label: 'This year' },
+  { key: 'all', label: 'All time' },
+]
+
+function tagRange(p: TagPeriod): { from?: string; to?: string; label: string } {
+  if (p === 'month') return { from: `${CURRENT_MONTH}-01`, to: `${CURRENT_MONTH}-31`, label: monthLabel(CURRENT_MONTH) }
+  if (p === 'last') {
+    const m = addMonths(CURRENT_MONTH, -1)
+    return { from: `${m}-01`, to: `${m}-31`, label: monthLabel(m) }
+  }
+  if (p === '3m') return { from: `${addMonths(CURRENT_MONTH, -2)}-01`, to: TODAY, label: 'Last 3 months' }
+  if (p === 'year') return { from: `${TODAY.slice(0, 4)}-01-01`, to: TODAY, label: TODAY.slice(0, 4) }
+  return { label: 'All time' }
+}
+
+/** Which Add Expense tags cost the most. */
+function TagsReport() {
+  const { transactions, settings } = useStore()
+  const [period, setPeriod] = useState<TagPeriod>('month')
+  const [showUnused, setShowUnused] = useState(false)
+  const tags = settings.extra?.customTags ?? []
+  const range = tagRange(period)
+  const report = useMemo(() => byTag(transactions, tags, range.from, range.to), [transactions, tags, range.from, range.to])
+  const used = report.tags.filter((r) => r.count > 0)
+  const rows = showUnused ? report.tags : used
+  const tagged = used.reduce((a, r) => a + r.total, 0)
+  const all = tagged + report.untagged.total
+  const top = used[0]
+  const max = Math.max(1, ...used.map((r) => r.total))
+
+  if (!tags.length) {
+    return (
+      <Card>
+        <div className="px-5 py-10 text-center">
+          <Tag size={26} className="mx-auto text-slate-300" />
+          <p className="text-[14px] font-bold text-slate-800 mt-3">No tags yet</p>
+          <p className="text-[12.5px] text-slate-500 mt-1">
+            Create tags with <b>Add Tag</b> in Add Expense. Each expense saved with a tag is counted here.
+          </p>
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        {TAG_PERIODS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setPeriod(key)}
+            className={`h-8 px-3 rounded-lg text-[12px] font-semibold border transition cursor-pointer ${
+              period === key ? 'bg-brand-600 border-brand-600 text-white' : 'bg-white border-[#e2e8f0] text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label={`Top tag (${range.label})`} value={top ? top.tag : '—'} icon={<Tag size={20} />} tint="#8b5cf6"
+          footer={<span className="text-slate-400">{top ? `${money(top.total)} · ${top.count} expense${top.count === 1 ? '' : 's'}` : 'No tagged spending'}</span>} />
+        <StatCard label="Tagged spending" value={money(tagged)} icon={<Tag size={20} />} tint="#f43f5e"
+          footer={<span className="text-slate-400">{used.reduce((a, r) => a + r.count, 0)} expenses</span>} />
+        <StatCard label="Share of all spending" value={`${all > 0 ? Math.round((tagged / all) * 100) : 0}%`} icon={<PieIcon size={20} />} tint="#3b82f6"
+          footer={<span className="text-slate-400">Untagged: {money(report.untagged.total)}</span>} />
+        <StatCard label="Tags used" value={`${used.length} / ${tags.length}`} icon={<Tag size={20} />} tint="#22c55e"
+          footer={<span className="text-slate-400">{tags.length - used.length} with no spending</span>} />
+      </div>
+
+      <div className="grid gap-4 grid-cols-1 xl:grid-cols-12">
+        <Card className="xl:col-span-4">
+          <CardHead title="Spending by Tag" sub={range.label} />
+          <div className="px-5 pb-5 flex flex-col items-center gap-4">
+            {used.length ? (
+              <>
+                <Donut data={used.map((r) => ({ name: r.tag, value: r.total }))} size={180} centerValue={money(tagged)} centerLabel="Tagged" />
+                <div className="w-full"><DonutLegend data={used.map((r) => ({ name: r.tag, value: r.total }))} total={tagged} /></div>
+              </>
+            ) : (
+              <p className="text-[12.5px] text-slate-500 py-8">No tagged expenses in this period.</p>
+            )}
+          </div>
+        </Card>
+
+        <Card className="xl:col-span-8">
+          <CardHead
+            title="Tag Ranking"
+            sub="Highest spending first"
+            right={
+              <label className="inline-flex items-center gap-1.5 text-[12px] text-slate-500 cursor-pointer">
+                <input type="checkbox" className="accent-brand-600" checked={showUnused} onChange={() => setShowUnused(!showUnused)} />
+                Show unused tags
+              </label>
+            }
+          />
+          <div className="overflow-x-auto scroll-thin">
+            <table className="w-full min-w-[640px]">
+              <thead className="bg-slate-50/70">
+                <tr>
+                  <th className="th w-10">#</th>
+                  <th className="th">Tag</th>
+                  <th className="th text-right">Spent</th>
+                  <th className="th text-right">Expenses</th>
+                  <th className="th text-right">Average</th>
+                  <th className="th w-48">Share</th>
+                  <th className="th">Last</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f1f5f9]">
+                {rows.map((r, i) => (
+                  <tr key={r.tag} className="row-hover">
+                    <td className="td text-slate-400 font-bold">{r.count ? i + 1 : '—'}</td>
+                    <td className="td font-semibold text-slate-800">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full mr-2" style={{ background: r.count ? PALETTE[i % PALETTE.length] : '#cbd5e1' }} />
+                      {r.tag}
+                    </td>
+                    <td className="td text-right tabular-nums font-bold">{money(r.total)}</td>
+                    <td className="td text-right tabular-nums text-slate-500">{r.count}</td>
+                    <td className="td text-right tabular-nums text-slate-500">{r.count ? money(r.total / r.count) : '—'}</td>
+                    <td className="td">
+                      <div className="flex items-center gap-2">
+                        <Progress value={Math.max(0, r.total)} max={max} color={PALETTE[i % PALETTE.length]} height={7} />
+                        <span className="text-[11px] font-bold text-slate-400 w-9 text-right">{tagged > 0 ? Math.round((r.total / tagged) * 100) : 0}%</span>
+                      </div>
+                    </td>
+                    <td className="td text-slate-500">{r.lastDate ? fmtDate(r.lastDate) : '—'}</td>
+                  </tr>
+                ))}
+                {!rows.length && (
+                  <tr><td colSpan={7} className="td text-center text-slate-400 py-8">No tagged expenses in this period.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+    </>
   )
 }
