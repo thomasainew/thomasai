@@ -18,7 +18,14 @@ import { deleteRow, upsertRow, upsertSettings, type RemoteData, type SessionCont
 import type { Collection } from '@/lib/mappers'
 
 /** A recorded payment. With `loanId`, it is a repayment towards that loan rather than an expense. */
-export interface PaymentInput { accountId: string; date: string; amount: number; loanId?: string; interest?: number }
+export interface PaymentInput {
+  accountId: string; date: string; amount: number
+  /** Pay down a loan from the Loans page… */
+  loanId?: string
+  /** …or a loan / credit-card account directly. */
+  toAccountId?: string
+  interest?: number
+}
 
 interface State {
   // ---- data
@@ -600,18 +607,21 @@ export const useStore = create<State>()(
         const inst = note?.schedule?.find((i) => i.id === installmentId)
         const account = get().accounts.find((a) => a.id === p.accountId)
         if (!note || !inst || !account) return null
-        if (p.loanId) {
+        const dest = p.toAccountId ? get().accounts.find((a) => a.id === p.toAccountId) : undefined
+        if (p.loanId || dest) {
           // Paid towards a loan: a repayment transfer from the paying account
           // into the loan, which lowers what is owed. Only interest is an expense.
           const transferId = get().addTransfer({
-            date: p.date, fromAccountId: p.accountId, toKind: 'loan', toId: p.loanId, amount: p.amount,
-            currency: inst.currency, purpose: 'Loan payment', kind: 'repayment',
+            date: p.date, fromAccountId: p.accountId, toKind: dest ? 'account' : 'loan', toId: dest ? dest.id : p.loanId!,
+            amount: p.amount, currency: inst.currency,
+            purpose: dest?.type === 'card' ? 'Credit card payment' : 'Loan payment',
+            kind: dest?.type === 'card' ? 'card_payment' : 'repayment',
             interest: p.interest && p.interest > 0 ? Math.min(p.interest, p.amount) : undefined,
             notes: `${note.title} — ${inst.label}`,
           })
           const schedule = (note.schedule ?? []).map((i) =>
             i.id === installmentId
-              ? { ...i, paidTxnId: undefined, paidTransferId: transferId, paidLoanId: p.loanId, paidAmount: p.amount, paidDate: p.date }
+              ? { ...i, paidTxnId: undefined, paidTransferId: transferId, paidLoanId: p.loanId ?? dest?.id, paidAmount: p.amount, paidDate: p.date }
               : i,
           )
           get().updateNote(noteId, { schedule })

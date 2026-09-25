@@ -131,6 +131,7 @@ export function ScheduleEditor({
 export function ScheduleView({ note, onPay }: { note: Note; onPay: (i: Installment) => void }) {
   const transactions = useStore((s) => s.transactions)
   const loans = useStore((s) => s.loans)
+  const accounts = useStore((s) => s.accounts)
   const exists = useMemo(() => new Set(transactions.map((t) => t.id)), [transactions])
   const sum = scheduleSummary(note, TODAY, (id) => exists.has(id))
   if (!sum.list.length) return null
@@ -147,7 +148,7 @@ export function ScheduleView({ note, onPay }: { note: Note; onPay: (i: Installme
         ))}
       </div>
       <table className="w-full text-[12.5px]">
-        <thead><tr className="text-[10.5px] uppercase tracking-wide text-slate-400 text-left"><th className="py-1 font-semibold">Payment</th><th className="py-1 font-semibold">Due</th><th className="py-1 font-semibold text-right">Amount</th><th className="py-1 font-semibold">Status</th><th /></tr></thead>
+        <thead><tr className="text-[10.5px] uppercase tracking-wide text-slate-400 text-left"><th className="py-1 font-semibold">Payment</th><th className="py-1 font-semibold">Due</th><th className="py-1 font-semibold text-right">Amount</th><th className="py-1 pl-4 font-semibold">Status</th><th /></tr></thead>
         <tbody>
           {sum.list.map((i) => {
             const st = installmentStatus(i, TODAY, (id) => exists.has(id))
@@ -156,9 +157,9 @@ export function ScheduleView({ note, onPay }: { note: Note; onPay: (i: Installme
                 <td className="py-1.5 font-medium text-slate-700">{i.label}</td>
                 <td className="py-1.5 text-slate-500">{fmtDate(i.dueDate)}</td>
                 <td className="py-1.5 text-right font-semibold tabular-nums">{money(i.amount, i.currency)}</td>
-                <td className="py-1.5"><Badge tone={tone[st]}>{st}</Badge>{st === 'Paid' && i.paidDate && <span className="text-[10.5px] text-slate-400 ml-1.5">{fmtDate(i.paidDate)}</span>}
+                <td className="py-1.5 pl-4"><Badge tone={tone[st]}>{st}</Badge>{st === 'Paid' && i.paidDate && <span className="text-[10.5px] text-slate-400 ml-1.5">{fmtDate(i.paidDate)}</span>}
                   {st === 'Paid' && i.paidLoanId && (
-                    <span className="text-[10.5px] text-slate-400 ml-1.5">→ {loans.find((l) => l.id === i.paidLoanId)?.name ?? 'loan'}</span>
+                    <span className="text-[10.5px] text-slate-400 ml-1.5">→ {loans.find((l) => l.id === i.paidLoanId)?.name ?? accounts.find((a) => a.id === i.paidLoanId)?.name ?? 'loan'}</span>
                   )}</td>
                 <td className="py-1.5 text-right">
                   {st !== 'Paid' && (
@@ -196,13 +197,31 @@ export function PayModal({
 }) {
   const accounts = useStore((s) => s.accounts)
   const allLoans = useStore((s) => s.loans)
-  const loans = useMemo(() => (allowLoan ? allLoans.filter((l) => l.status !== 'Closed') : []), [allowLoan, allLoans])
-  const [loanId, setLoanId] = useState('')
-  const loan = loans.find((l) => l.id === loanId)
+  // What the payment can pay down: loans from the Loans page, plus any loan or
+  // credit-card account (e.g. a Tabby / BNPL account) not already behind one of them.
+  const targets = useMemo(() => {
+    if (!allowLoan) return []
+    const loans = allLoans.filter((l) => l.status !== 'Closed')
+    const linked = new Set(loans.map((l) => l.accountId).filter(Boolean))
+    return [
+      ...loans.map((l) => ({
+        key: `loan:${l.id}`, name: l.name, linkedAccountId: l.accountId,
+        label: `${l.name}${l.lender ? ` · ${l.lender}` : ''} — ${money(l.outstanding, l.currency)} outstanding`,
+      })),
+      ...accounts
+        .filter((a) => (a.type === 'loan' || a.type === 'card') && !linked.has(a.id))
+        .map((a) => ({
+          key: `acct:${a.id}`, name: a.name, linkedAccountId: a.id,
+          label: `${accountLabel(a)} (${a.type === 'card' ? 'credit card' : 'loan account'}) — ${money(Math.abs(a.balance ?? 0), a.currency)} owed`,
+        })),
+    ]
+  }, [allowLoan, allLoans, accounts])
+  const [targetKey, setTargetKey] = useState('')
+  const target = targets.find((t) => t.key === targetKey)
   // The loan being repaid can't also be the account paying it.
   const eligible = useMemo(
-    () => paymentAccounts(accounts).filter((a) => !loan?.accountId || a.id !== loan.accountId),
-    [accounts, loan],
+    () => paymentAccounts(accounts).filter((a) => !target?.linkedAccountId || a.id !== target.linkedAccountId),
+    [accounts, target],
   )
   const [accountId, setAccountId] = useState('')
   const [date, setDate] = useState(TODAY)
@@ -212,8 +231,10 @@ export function PayModal({
   useEffect(() => {
     if (!open) return
     const hint = (suggestLoanFor ?? '').trim().toLowerCase()
-    const guess = hint ? loans.find((l) => hint.includes(l.name.trim().toLowerCase()) || l.name.trim().toLowerCase().includes(hint)) : undefined
-    setLoanId(guess?.id ?? '')
+    const guess = hint
+      ? targets.find((t) => hint.includes(t.name.trim().toLowerCase()) || t.name.trim().toLowerCase().includes(hint))
+      : undefined
+    setTargetKey(guess?.key ?? '')
     setDate(TODAY)
     setAmt(amount !== undefined ? String(amount) : '')
     setInterest('')
@@ -236,7 +257,13 @@ export function PayModal({
         <>
           <button className="btn-ghost" onClick={onClose}>Cancel</button>
           <button className="btn-green disabled:opacity-50" disabled={!ok} onClick={() => {
-            onConfirm({ accountId, date, amount: Number(amt), loanId: loan?.id, interest: loan && Number(interest) > 0 ? Number(interest) : undefined })
+            const [kind, id] = target ? target.key.split(':') : []
+            onConfirm({
+              accountId, date, amount: Number(amt),
+              loanId: kind === 'loan' ? id : undefined,
+              toAccountId: kind === 'acct' ? id : undefined,
+              interest: target && Number(interest) > 0 ? Number(interest) : undefined,
+            })
             onClose()
           }}>
             <CheckCircle2 size={15} /> Record payment
@@ -245,35 +272,36 @@ export function PayModal({
       }
     >
       <div className="grid grid-cols-2 gap-4">
-        {loans.length > 0 && (
+        {allowLoan && (
           <Field label="Loan to reduce" className="col-span-2">
-            <select className="input" value={loanId} onChange={(e) => setLoanId(e.target.value)}>
+            <select className="input" value={targetKey} onChange={(e) => setTargetKey(e.target.value)}>
               <option value="">None — record as an expense</option>
-              {loans.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}{l.lender ? ` · ${l.lender}` : ''} — {money(l.outstanding, l.currency)} outstanding
-                </option>
-              ))}
+              {targets.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
             </select>
+            {!targets.length && (
+              <p className="text-[11px] text-slate-400 mt-1">
+                No loans yet — add the loan on the Loans page, or a loan / credit-card account under Accounts, to pay it down here.
+              </p>
+            )}
           </Field>
         )}
-        <Field label="Paid from" className="col-span-2">
+        <Field label="Paid from (bank / cash / card)" className="col-span-2">
           <select className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             {eligible.map((a) => <option key={a.id} value={a.id}>{accountLabel(a)}</option>)}
           </select>
         </Field>
         <Field label={`Amount paid (${currency})`}><input className="input" type="number" min="0" step="0.01" value={amt} onChange={(e) => setAmt(e.target.value)} /></Field>
         <Field label="Date paid"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-        {loan && (
-          <Field label={`Of which interest (${currency}, optional)`} className="col-span-2">
+        {target && (
+          <Field label={`Of which interest / fees (${currency}, optional)`} className="col-span-2">
             <input className="input" type="number" min="0" step="0.01" value={interest} onChange={(e) => setInterest(e.target.value)} placeholder="0" />
           </Field>
         )}
-        {loan ? (
+        {target ? (
           <p className="col-span-2 text-[11.5px] text-slate-500">
-            Records a repayment from the paying account into <b>{loan.name}</b>, so its outstanding balance drops by the
-            amount paid{Number(interest) > 0 ? ' less the interest' : ''}. Interest is counted as an expense; the rest is
-            not, since it only pays down what you owe.
+            Records a repayment from the paying account into <b>{target.name}</b>, so what you owe drops by the amount
+            paid{Number(interest) > 0 ? ' less the interest' : ''}. Interest is counted as an expense; the rest is not,
+            since it only pays down what you owe.
           </p>
         ) : (
         <p className="col-span-2 text-[11.5px] text-slate-500">
