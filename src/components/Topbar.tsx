@@ -7,6 +7,7 @@ import { fmtDate, money, daysLeft } from '@/lib/format'
 import { docStatus } from '@/lib/selectors'
 import { hasSupabase, supabase } from '@/lib/supabase'
 import type { Currency } from '@/types'
+import { InstallAppButton } from '@/components/InstallApp'
 
 interface Hit {
   label: string
@@ -179,6 +180,8 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
           </select>
           <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
+
+        <InstallAppButton />
 
         <div className="relative" ref={bellRef}>
           <button
