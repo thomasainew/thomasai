@@ -435,7 +435,7 @@ export function BillScanModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative w-full max-w-[1500px] card animate-pop max-h-[94vh] flex flex-col">
+      <div className="relative w-full max-w-[1500px] card animate-pop max-h-[94vh] [max-height:94dvh] flex flex-col">
         {/* ------------------------------------------------------ title --- */}
         <div className="flex items-start justify-between gap-4 px-5 sm:px-6 pt-5 pb-3 border-b border-[#eef2f8]">
           <div>
@@ -858,7 +858,7 @@ export function BillScanModal({
         </div>
 
         {/* ------------------------------------------------------ footer --- */}
-        <div className="px-5 sm:px-6 py-4 border-t border-[#eef2f8] flex flex-wrap items-center gap-3">
+        <div className="px-5 sm:px-6 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-[#eef2f8] flex flex-wrap items-center gap-3">
           {rows ? (
             <>
               <button className="btn-primary h-11 px-5 text-[13.5px]" onClick={addMissingItem}>

@@ -26,7 +26,7 @@ export function Layout() {
   useEffect(() => () => resetTheme(), [])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen [height:100dvh] overflow-hidden pad-safe-x">
       <div className="hidden lg:block">
         <Sidebar />
       </div>
@@ -34,7 +34,7 @@ export function Layout() {
       {open && (
         <div className="lg:hidden fixed inset-0 z-50 flex">
           <div className="absolute inset-0 bg-slate-900/40" onClick={() => setOpen(false)} />
-          <div className="relative animate-pop">
+          <div className="relative animate-pop max-w-[85vw] pad-safe-top">
             <Sidebar onNavigate={() => setOpen(false)} />
           </div>
         </div>
@@ -42,7 +42,7 @@ export function Layout() {
 
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar onMenu={() => setOpen(true)} />
-        <main key={pathname} className="flex-1 overflow-y-auto scroll-thin p-4 lg:p-6 animate-fade-up">
+        <main key={pathname} className="flex-1 overflow-y-auto scroll-thin p-4 lg:p-6 pb-[max(1rem,env(safe-area-inset-bottom))] animate-fade-up">
           {canOpen(membership, pathname) ? (
             <Outlet />
           ) : (

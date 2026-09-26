@@ -115,7 +115,7 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
   }, [documents, loans, bills, txns, budgets, cfg, analysis])
 
   return (
-    <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl border-b border-[#e8edf5]">
+    <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-xl border-b border-[#e8edf5] pad-safe-top">
       <div className="h-16 px-4 lg:px-6 flex items-center gap-3">
         <button onClick={onMenu} className="lg:hidden h-9 w-9 grid place-items-center rounded-lg hover:bg-slate-100 cursor-pointer">
           <Menu size={18} />
@@ -133,10 +133,10 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
             onFocus={() => setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
             placeholder="Search transactions, accounts, documents, notes…"
-            className="w-full h-10 rounded-xl bg-slate-50 border border-transparent pl-10 pr-16 text-[13px] outline-none transition
+            className="w-full h-10 rounded-xl bg-slate-50 border border-transparent pl-10 pr-3 sm:pr-16 text-[13px] outline-none transition
                        placeholder:text-slate-400 focus:bg-white focus:border-brand-300 focus:ring-4 focus:ring-brand-500/10"
           />
-          <kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5">
+          <kbd className="hidden sm:block absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-400 bg-white border border-slate-200 rounded px-1.5 py-0.5">
             ⌘K
           </kbd>
           {open && hits.length > 0 && (
